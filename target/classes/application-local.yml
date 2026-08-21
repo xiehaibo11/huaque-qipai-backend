@@ -1,0 +1,32 @@
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/local
+    out-of-order: true
+
+nanbei:
+  security:
+    jwt-secret: ${JWT_SECRET:local-development-secret-change-before-production-0123456789}
+  auth:
+    local-otp: ${LOCAL_OTP:246810}
+  payment:
+    mock-webhook-secret: ${MOCK_PAYMENT_WEBHOOK_SECRET:local-mock-payment-secret}
+  gameplay:
+    qa:
+      enabled: true
+
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+
+management:
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.nanbei.entertainment.backend: INFO

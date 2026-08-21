@@ -1,0 +1,93 @@
+spring:
+  application:
+    name: nanbei-backend
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:55432/nanbei}
+    username: ${DB_USERNAME:nanbei}
+    password: ${DB_PASSWORD:nanbei-local-password}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when_authorized
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+nanbei:
+  security:
+    jwt-secret: ${JWT_SECRET:}
+    access-token-ttl: PT15M
+    refresh-token-ttl: P30D
+  auth:
+    local-otp: ${LOCAL_OTP:}
+    otp-ttl: PT5M
+    max-attempts: 5
+  sms:
+    enabled: ${ALIYUN_SMS_ENABLED:false}
+    region-id: ${ALIYUN_SMS_REGION_ID:cn-hangzhou}
+    sign-name: ${ALIYUN_SMS_SIGN_NAME:广东万一塑胶材料有限公司}
+    template-code: ${ALIYUN_SMS_TEMPLATE_CODE:SMS_511015069}
+  wechat:
+    enabled: ${WECHAT_LOGIN_ENABLED:false}
+    app-id: ${WECHAT_APP_ID:}
+    app-secret: ${WECHAT_APP_SECRET:}
+    connect-timeout: PT3S
+    read-timeout: PT5S
+  one-tap:
+    enabled: ${ALIYUN_ONE_TAP_ENABLED:false}
+    region-id: ${ALIYUN_ONE_TAP_REGION_ID:cn-hangzhou}
+    endpoint: ${ALIYUN_ONE_TAP_ENDPOINT:dypnsapi.aliyuncs.com}
+    connect-timeout: PT3S
+    read-timeout: PT5S
+  payment:
+    mock-webhook-secret: ${MOCK_PAYMENT_WEBHOOK_SECRET:}
+    yishoumi:
+      enabled: ${YISHOUMI_PAYMENT_ENABLED:false}
+      app-id: ${YISHOUMI_APP_ID:}
+      app-secret: ${YISHOUMI_APP_SECRET:}
+      payment-url: ${YISHOUMI_PAYMENT_URL:https://www.yishoumi.cn/u/payment}
+      notify-url: ${YISHOUMI_NOTIFY_URL:https://api.nanbeiyule.com/api/v1/payments/webhooks/yishoumi}
+      callback-url: ${YISHOUMI_CALLBACK_URL:https://www.nanbeiyule.com/payment/result}
+      nopay-url: ${YISHOUMI_NOPAY_URL:https://www.nanbeiyule.com/payment/result}
+      connect-timeout: PT3S
+      read-timeout: PT8S
+  realname:
+    enabled: ${ALIYUN_REALNAME_ENABLED:false}
+    endpoint: ${ALIYUN_REALNAME_ENDPOINT:}
+    app-code: ${ALIYUN_REALNAME_APPCODE:}
+    hmac-secret: ${REALNAME_HMAC_SECRET:local-only-realname-secret}
+    max-failed-attempts: 5
+  alipay-realname:
+    enabled: ${ALIPAY_REALNAME_ENABLED:false}
+    app-id: ${ALIPAY_APP_ID:}
+    private-key: ${ALIPAY_PRIVATE_KEY:}
+    alipay-public-key: ${ALIPAY_PUBLIC_KEY:}
+  gameplay:
+    qa:
+      enabled: ${GAMEPLAY_QA_ENABLED:false}

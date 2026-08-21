@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.nanbei.entertainment.backend.BackendQaTaizhouRoundFlowIT
+-------------------------------------------------------------------------------
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 4.836 s -- in com.nanbei.entertainment.backend.BackendQaTaizhouRoundFlowIT

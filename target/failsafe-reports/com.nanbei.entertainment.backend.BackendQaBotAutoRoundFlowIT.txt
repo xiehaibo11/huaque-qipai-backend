@@ -1,0 +1,17 @@
+-------------------------------------------------------------------------------
+Test set: com.nanbei.entertainment.backend.BackendQaBotAutoRoundFlowIT
+-------------------------------------------------------------------------------
+Tests run: 3, Failures: 2, Errors: 0, Skipped: 0, Time elapsed: 0.353 s <<< FAILURE! -- in com.nanbei.entertainment.backend.BackendQaBotAutoRoundFlowIT
+com.nanbei.entertainment.backend.BackendQaBotAutoRoundFlowIT.qaAutoRoundFillsBotsAndWaitsForTheHumanMultipleChoiceBeforeDealing -- Time elapsed: 0.279 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: 
+
+Expecting value to be true but was false
+	at com.nanbei.entertainment.backend.BackendQaBotAutoRoundFlowIT.qaAutoRoundFillsBotsAndWaitsForTheHumanMultipleChoiceBeforeDealing(BackendQaBotAutoRoundFlowIT.java:63)
+
+com.nanbei.entertainment.backend.BackendQaBotAutoRoundFlowIT.normalStartRoundStartsServerAuthorityForAFullReadyRealRoom -- Time elapsed: 0.042 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: 
+
+expected: 200
+ but was: 410
+	at com.nanbei.entertainment.backend.BackendQaBotAutoRoundFlowIT.normalStartRoundStartsServerAuthorityForAFullReadyRealRoom(BackendQaBotAutoRoundFlowIT.java:141)
+

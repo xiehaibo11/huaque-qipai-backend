@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<checkstyle version="9.3">
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/main/java/com/nanbei/entertainment/backend/roomtools/application/RoomToolsService.java">
+<error line="1" severity="warning" message="文件 447 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/main/java/com/nanbei/entertainment/backend/room/application/RoomRuleAssembler.java">
+<error line="1" severity="warning" message="文件 432 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/main/java/com/nanbei/entertainment/backend/gameplay/application/QaRoundTurnDriver.java">
+<error line="1" severity="warning" message="文件 499 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/main/java/com/nanbei/entertainment/backend/gameplay/application/QaGoldRoomAutoMatchService.java">
+<error line="1" severity="warning" message="文件 335 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/main/java/com/nanbei/entertainment/backend/gameplay/application/GameplayCommandService.java">
+<error line="1" severity="warning" message="文件 485 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/main/java/com/nanbei/entertainment/backend/gameplay/application/QaRoundTable.java">
+<error line="1" severity="warning" message="文件 317 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/main/java/com/nanbei/entertainment/backend/gameplay/application/GameplaySessionService.java">
+<error line="1" severity="warning" message="文件 338 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/main/java/com/nanbei/entertainment/backend/gameplay/application/QaTaizhouProjection.java">
+<error line="1" severity="warning" message="文件 453 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/main/java/com/nanbei/entertainment/backend/gameplay/application/QaMahjongAutoRoundEngine.java">
+<error line="1" severity="warning" message="文件 481 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/main/java/com/nanbei/entertainment/backend/fortune/application/FortuneService.java">
+<error line="1" severity="warning" message="文件 358 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/BackendRoomGameplaySettlementTest.java">
+<error line="1" severity="warning" message="文件 436 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/friend/application/FriendServiceTest.java">
+<error line="1" severity="warning" message="文件 444 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/room/TaizhouRoomUpgradeMigrationTest.java">
+<error line="1" severity="warning" message="文件 327 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/room/application/RoomRuleAssemblerTest.java">
+<error line="1" severity="warning" message="文件 347 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/BackendFriendFlowIT.java">
+<error line="1" severity="warning" message="文件 466 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/BackendGoldRoomJoinFlowIT.java">
+<error line="1" severity="warning" message="文件 440 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/BackendAuthPaymentConcurrencyIT.java">
+<error line="1" severity="warning" message="文件 357 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/gameplay/application/GameplayCommandServiceQaRoundTest.java">
+<error line="1" severity="warning" message="文件 320 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/gameplay/application/QaTaizhouRoundEngineTest.java">
+<error line="1" severity="warning" message="文件 498 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/gameplay/application/GameplayCommandServiceTest.java">
+<error line="1" severity="warning" message="文件 379 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/gameplay/application/GameplaySessionServiceTest.java">
+<error line="1" severity="warning" message="文件 487 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/BackendWuLongRoomFlowIT.java">
+<error line="1" severity="warning" message="文件 464 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+<file name="/Users/mosc/Downloads/ZJYX/backend/src/test/java/com/nanbei/entertainment/backend/realname/application/RealNameServiceTest.java">
+<error line="1" severity="warning" message="文件 380 行 （最多：300 行）。" source="source-size-warning"/>
+</file>
+</checkstyle>
