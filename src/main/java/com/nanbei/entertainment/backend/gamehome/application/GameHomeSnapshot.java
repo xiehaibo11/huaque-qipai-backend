@@ -7,9 +7,19 @@ public record GameHomeSnapshot(
         Player player,
         Wallet wallet,
         Region region,
-        List<Entry> entries) {
+        List<Entry> entries,
+        List<Announcement> announcements) {
     public GameHomeSnapshot {
         entries = List.copyOf(entries);
+        announcements = List.copyOf(announcements);
+    }
+
+    public GameHomeSnapshot(
+            Player player,
+            Wallet wallet,
+            Region region,
+            List<Entry> entries) {
+        this(player, wallet, region, entries, List.of());
     }
 
     public record Player(
@@ -26,6 +36,8 @@ public record GameHomeSnapshot(
             long diamonds) {}
 
     public record Region(long lobbyId, String areaName) {}
+
+    public record Announcement(String content) {}
 
     /**
      * 大厅入口。{@code bubbleText}、{@code bubbleType}、{@code bubbleIntervalSeconds}

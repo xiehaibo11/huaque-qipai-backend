@@ -22,6 +22,12 @@ public class MailEntity {
     @Column(name = "user_id", nullable = false)
     private UUID userId;
 
+    @Column(name = "source_type", length = 80)
+    private String sourceType;
+
+    @Column(name = "source_id", length = 160)
+    private String sourceId;
+
     @Column(nullable = false, length = 200)
     private String title;
 
@@ -77,6 +83,22 @@ public class MailEntity {
         this.expireAt = expireAt;
     }
 
+    public MailEntity(
+            UUID userId,
+            String sourceType,
+            String sourceId,
+            String title,
+            String intro,
+            String content,
+            String sender,
+            String attachments,
+            Instant sendAt,
+            Instant expireAt) {
+        this(userId, title, intro, content, sender, attachments, sendAt, expireAt);
+        this.sourceType = sourceType;
+        this.sourceId = sourceId;
+    }
+
     @PrePersist
     void onCreate() {
         createdAt = Instant.now();
@@ -110,6 +132,14 @@ public class MailEntity {
 
     public UUID getUserId() {
         return userId;
+    }
+
+    public String getSourceType() {
+        return sourceType;
+    }
+
+    public String getSourceId() {
+        return sourceId;
     }
 
     public String getTitle() {

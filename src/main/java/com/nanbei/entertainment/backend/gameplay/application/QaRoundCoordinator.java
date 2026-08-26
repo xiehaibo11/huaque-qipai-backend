@@ -112,7 +112,8 @@ final class QaRoundCoordinator {
                                 expectedRevision,
                                 session.getRoundNumber(),
                                 seatInputs,
-                                now));
+                                now,
+                                room.getRoomMode() == 50));
         return new QaRoundCommandOutcome(
                 result.phase(),
                 result.roundNumber(),
@@ -143,6 +144,9 @@ final class QaRoundCoordinator {
         }
         if (type == GameplayCommandType.NEXT_ROUND) {
             guardNextRound(room, session, now);
+            if (mode.qaMode() && isQaGoldRoom(room)) {
+                seats = qaBotService.replaceIneligibleGoldBots(room, session, seats, now);
+            }
         }
         QaTaizhouRoundEngine engine = new QaTaizhouRoundEngine(objectMapper, mode);
         QaRoundTable table = engine.readTable(state);
@@ -151,7 +155,8 @@ final class QaRoundCoordinator {
                         room.getRoomNumber(),
                         gameRuleDisplay(room),
                         seatInputs(room, seats),
-                        now);
+                        now,
+                        room.getRoomMode() == 50);
         QaRoundStep step =
                 engine.apply(
                         table,
@@ -191,6 +196,10 @@ final class QaRoundCoordinator {
             throw new ApiException(ErrorCode.ROOM_ILLEGAL_STATE, "牌局玩家资料不完整");
         }
         return qaBotService.seatInputs(room, seats);
+    }
+
+    private static boolean isQaGoldRoom(GameRoomEntity room) {
+        return room.getGameRule() != null && room.getGameRule().contains("QaGoldMatch='1'");
     }
 
     private JsonNode readState(GameSessionEntity session) {

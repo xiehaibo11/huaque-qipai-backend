@@ -104,7 +104,7 @@ class QaRoundWave3EventTest {
     }
 
     @Test
-    void theFirstShengPaiCountOfTwentyTwoArrivesAfterDealtWithoutChargingTheOpeningDeal()
+    void shengPaiIsAbsentImmediatelyAfterTheOpeningDeal()
             throws Exception {
         QaTaizhouRoundEngine engine = new QaTaizhouRoundEngine(OBJECT_MAPPER);
 
@@ -113,19 +113,13 @@ class QaRoundWave3EventTest {
                         engine, QaTaizhouRoundEngineTest.baseDealPrefix());
 
         List<GameEvent> events = result.events();
-        int dealtIndex = indexOf(events, "DEALT");
-        int shengPaiIndex = indexOf(events, "SHENG_PAI_COUNT");
-        assertThat(shengPaiIndex).isGreaterThan(dealtIndex);
-        GameEvent shengPai = events.get(shengPaiIndex);
-        assertThat(shengPai.audience()).isEqualTo(GameEvent.Audience.PUBLIC);
-        assertThat(shengPai.payload()).containsEntry("shengPaiCount", 22);
-        // 起手发牌含庄家第 14 张，发牌不走摸牌计数。
+        assertThat(events).extracting(GameEvent::type).doesNotContain("SHENG_PAI_COUNT");
         JsonNode state = engine.sessionState(result.table(), QaRoundTestRigs.humanDealerContext());
-        assertThat(state.path("shengPaiCount").asInt()).isEqualTo(22);
+        assertThat(state.path("shengPaiCount").isNull()).isTrue();
     }
 
     @Test
-    void shengPaiCountNeverDropsBelowZeroAcrossAFullAllBotRound() {
+    void shengPaiCountNeverDropsBelowTheYellowThresholdAcrossAFullAllBotRound() {
         QaTaizhouRoundEngine engine = new QaTaizhouRoundEngine(OBJECT_MAPPER);
 
         QaTaizhouRoundResult result =
@@ -134,14 +128,12 @@ class QaRoundWave3EventTest {
                                 QaTaizhouRoundEngineTest.seats(true, true, true, true)),
                         QaTaizhouRoundEngineTest.baseDealPrefix());
 
-        long drawnCount =
-                result.events().stream().filter(event -> event.type().equals("DRAWN")).count()
-                        + result.events().stream()
-                                .filter(event -> event.type().equals("FLOWER_REPLACED"))
-                                .count();
-        int expected = Math.max(0, 22 - (int) drawnCount);
-        assertThat(expected).isZero();
-        assertThat(result.state().path("shengPaiCount").asInt()).isEqualTo(expected);
+        result.events().stream()
+                .filter(event -> event.type().equals("SHENG_PAI_COUNT"))
+                .forEach(
+                        event ->
+                                assertThat((Integer) event.payload().get("shengPaiCount"))
+                                        .isBetween(17, 31));
     }
 
     @Test

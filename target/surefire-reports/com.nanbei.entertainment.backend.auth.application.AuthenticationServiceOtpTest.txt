@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.nanbei.entertainment.backend.auth.application.AuthenticationServiceOtpTest
--------------------------------------------------------------------------------
-Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.277 s -- in com.nanbei.entertainment.backend.auth.application.AuthenticationServiceOtpTest

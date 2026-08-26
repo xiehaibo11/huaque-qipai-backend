@@ -1,5 +1,6 @@
 package com.nanbei.entertainment.backend.user.domain;
 
+import com.nanbei.entertainment.backend.common.profile.ProfileSource;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -25,6 +26,13 @@ public class UserEntity {
     @Column(name = "display_name", nullable = false, length = 80)
     private String displayName;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "display_name_source", nullable = false, length = 20)
+    private ProfileSource displayNameSource;
+
+    @Column(name = "auth_version", nullable = false)
+    private long authVersion;
+
     @Column(name = "last_active_at")
     private Instant lastActiveAt;
 
@@ -44,10 +52,17 @@ public class UserEntity {
         this.id = id;
         this.status = UserStatus.ACTIVE;
         this.displayName = displayName;
+        this.displayNameSource = ProfileSource.SYSTEM;
     }
 
     public static UserEntity create(String displayName) {
         return new UserEntity(UUID.randomUUID(), displayName);
+    }
+
+    public static UserEntity create(String displayName, ProfileSource source) {
+        UserEntity user = create(displayName);
+        user.displayNameSource = source;
+        return user;
     }
 
     @PrePersist
@@ -81,6 +96,33 @@ public class UserEntity {
         this.displayName = displayName;
     }
 
+    public void renameFromWechat(String displayName) {
+        if (displayNameSource == ProfileSource.USER) {
+            return;
+        }
+        rename(displayName);
+        displayNameSource = ProfileSource.WECHAT;
+    }
+
+    public void clearWechatDisplayName() {
+        if (displayNameSource == ProfileSource.WECHAT) {
+            displayName = "微信用户";
+            displayNameSource = ProfileSource.SYSTEM;
+        }
+    }
+
+    public ProfileSource getDisplayNameSource() {
+        return displayNameSource;
+    }
+
+    public long getAuthVersion() {
+        return authVersion;
+    }
+
+    public void invalidateSessions() {
+        authVersion++;
+    }
+
     public Instant getLastActiveAt() {
         return lastActiveAt;
     }
@@ -95,5 +137,9 @@ public class UserEntity {
 
     public boolean isActive() {
         return status == UserStatus.ACTIVE;
+    }
+
+    public void deactivate() {
+        status = UserStatus.DISABLED;
     }
 }

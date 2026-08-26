@@ -17,7 +17,7 @@ final class QaTaizhouHandArrangement {
         }
     }
 
-    static Arrangement best(List<Integer> concealed, int seat) {
+    static Arrangement best(List<Integer> concealed, int seatWind) {
         int jokers = 0;
         Map<Integer, Integer> counts = new TreeMap<>();
         for (int tile : concealed) {
@@ -42,27 +42,27 @@ final class QaTaizhouHandArrangement {
                     continue;
                 }
                 Arrangement melds =
-                        bestMelds(remove(counts, pairTile, used), jokers - jokerNeeded, seat);
+                        bestMelds(remove(counts, pairTile, used), jokers - jokerNeeded, seatWind);
                 if (melds != null) {
                     best =
                             better(
                                     best,
                                     melds.withAdded(
-                                            QaTaizhouScorer.pairPoint(pairTile, seat), 0, 0));
+                                            QaTaizhouScorer.pairPoint(pairTile, seatWind), 0, 0));
                 }
             }
         }
         return best;
     }
 
-    private static Arrangement bestMelds(Map<Integer, Integer> counts, int jokers, int seat) {
-        return bestMelds(counts, jokers, seat, new LinkedHashMap<>());
+    private static Arrangement bestMelds(Map<Integer, Integer> counts, int jokers, int seatWind) {
+        return bestMelds(counts, jokers, seatWind, new LinkedHashMap<>());
     }
 
     private static Arrangement bestMelds(
             Map<Integer, Integer> counts,
             int jokers,
-            int seat,
+            int seatWind,
             Map<String, Arrangement> memo) {
         if (counts.isEmpty()) {
             return jokers % 3 == 0 ? new Arrangement(0, 0, 0) : null;
@@ -72,8 +72,8 @@ final class QaTaizhouHandArrangement {
             return memo.get(key);
         }
         int first = counts.keySet().iterator().next();
-        Arrangement best = tryTriplet(counts, jokers, seat, memo, first);
-        best = better(best, trySequence(counts, jokers, seat, memo, first));
+        Arrangement best = tryTriplet(counts, jokers, seatWind, memo, first);
+        best = better(best, trySequence(counts, jokers, seatWind, memo, first));
         memo.put(key, best);
         return best;
     }
@@ -81,7 +81,7 @@ final class QaTaizhouHandArrangement {
     private static Arrangement tryTriplet(
             Map<Integer, Integer> counts,
             int jokers,
-            int seat,
+            int seatWind,
             Map<String, Arrangement> memo,
             int first) {
         int tripletUsed = Math.min(3, counts.get(first));
@@ -90,38 +90,55 @@ final class QaTaizhouHandArrangement {
             return null;
         }
         Arrangement rest =
-                bestMelds(remove(counts, first, tripletUsed), jokers - jokerNeeded, seat, memo);
+                bestMelds(remove(counts, first, tripletUsed), jokers - jokerNeeded, seatWind, memo);
         if (rest == null) {
             return null;
         }
         return rest.withAdded(
                 QaTaizhouScorer.tripletPoint(first, true),
-                QaTaizhouScorer.fanForTriplet(first, seat),
+                QaTaizhouScorer.fanForTriplet(first, seatWind),
                 0);
     }
 
     private static Arrangement trySequence(
             Map<Integer, Integer> counts,
             int jokers,
-            int seat,
+            int seatWind,
             Map<String, Arrangement> memo,
             int first) {
-        if (!QaTaizhouTiles.isSuited(first) || QaTaizhouTiles.rankOf(first) > 7) {
+        if (!QaTaizhouTiles.isSuited(first)) {
             return null;
         }
-        int second = first + 1;
-        int third = first + 2;
-        int secondUsed = counts.getOrDefault(second, 0) > 0 ? 1 : 0;
-        int thirdUsed = counts.getOrDefault(third, 0) > 0 ? 1 : 0;
-        int sequenceJokers = 2 - secondUsed - thirdUsed;
-        if (sequenceJokers > jokers) {
-            return null;
+        Arrangement best = null;
+        int rank = QaTaizhouTiles.rankOf(first);
+        for (int startRank = Math.max(1, rank - 2); startRank <= Math.min(7, rank); startRank++) {
+            int start = (QaTaizhouTiles.suitOf(first) << 4) + startRank;
+            for (int jokerMask = 0; jokerMask < 8; jokerMask++) {
+                Map<Integer, Integer> next = new TreeMap<>(counts);
+                int usedJokers = 0;
+                boolean valid = true;
+                for (int offset = 0; offset < 3; offset++) {
+                    int tile = start + offset;
+                    boolean useJoker = tile != first && (jokerMask & (1 << offset)) != 0;
+                    if (useJoker) {
+                        usedJokers++;
+                    } else if (next.getOrDefault(tile, 0) > 0) {
+                        next = remove(next, tile, 1);
+                    } else {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (!valid || usedJokers > jokers) {
+                    continue;
+                }
+                Arrangement rest = bestMelds(next, jokers - usedJokers, seatWind, memo);
+                if (rest != null) {
+                    best = better(best, rest.withAdded(0, 0, 1));
+                }
+            }
         }
-        Map<Integer, Integer> next = remove(counts, first, 1);
-        next = remove(next, second, secondUsed);
-        next = remove(next, third, thirdUsed);
-        Arrangement rest = bestMelds(next, jokers - sequenceJokers, seat, memo);
-        return rest == null ? null : rest.withAdded(0, 0, 1);
+        return best;
     }
 
     private static Arrangement better(Arrangement current, Arrangement candidate) {
@@ -131,9 +148,17 @@ final class QaTaizhouHandArrangement {
         if (current == null) {
             return candidate;
         }
-        int candidateRank = candidate.points() * 32 + candidate.fan();
-        int currentRank = current.points() * 32 + current.fan();
+        int candidateRank = finalHu(candidate);
+        int currentRank = finalHu(current);
         return candidateRank > currentRank ? candidate : current;
+    }
+
+    private static int finalHu(Arrangement arrangement) {
+        long total = 10L + arrangement.points();
+        for (int index = 0; index < arrangement.fan() && total < 100; index++) {
+            total *= 2L;
+        }
+        return (int) Math.min(100, total);
     }
 
     private static Map<Integer, Integer> remove(

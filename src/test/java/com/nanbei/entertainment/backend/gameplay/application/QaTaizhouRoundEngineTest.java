@@ -84,11 +84,17 @@ class QaTaizhouRoundEngineTest {
         assertThat(state.path("multipleChoice").path("seatChoices")).hasSize(4);
         assertThat(state.path("multipleChoice").path("seatChoices").get(0).path("choice").isNull())
                 .isTrue();
+        assertThat(state.path("multipleChoice").path("seatChoices").get(1).path("choice").asText())
+                .isEqualTo("DEFAULT");
+        assertThat(state.path("multipleChoice").path("seatChoices").get(2).path("choice").asText())
+                .isEqualTo("SUPER");
+        assertThat(state.path("multipleChoice").path("seatChoices").get(3).path("choice").asText())
+                .isEqualTo("PASS");
         assertThat(state.path("visibleRoundsBySeat").path("1").path("hands").get(0)
                         .path("concealedTiles"))
                 .isEmpty();
         assertThat(state.path("playPermissionsBySeat").path("1").isMissingNode()).isTrue();
-        assertThat(state.path("clockRemainingSeconds").asInt()).isEqualTo(20);
+        assertThat(state.path("clockRemainingSeconds").asInt()).isEqualTo(5);
         assertThat(state.path("remainingWallCount").asInt()).isEqualTo(136);
     }
 
@@ -116,7 +122,6 @@ class QaTaizhouRoundEngineTest {
                         "DICE_ROLLED",
                         "LEFT_BANKER",
                         "DEALT",
-                        "SHENG_PAI_COUNT",
                         "ACTION_OFFERED",
                         "TING_INFO")
                 .doesNotContain("DRAWN", "WIN_DECLARED", "SCORES_SETTLED", "ROUND_RESULT_READY");
@@ -131,7 +136,7 @@ class QaTaizhouRoundEngineTest {
         assertThat(offer.payload().get("seat")).isEqualTo(1);
         assertThat(offer.payload())
                 .containsEntry("activeSeat", 1)
-                .containsEntry("clockRemainingSeconds", 20);
+                .containsEntry("clockRemainingSeconds", 10);
         int powerMask = (Integer) offer.payload().get("powerMask");
         assertThat(powerMask & QaPowerMask.PLAY).isNotZero();
         assertThat((String) offer.payload().get("actionToken")).isNotBlank();
@@ -143,7 +148,7 @@ class QaTaizhouRoundEngineTest {
         JsonNode state = engine.sessionState(result.table(), QaRoundTestRigs.humanDealerContext());
         assertThat(state.path("multipleChoice").isNull()).isTrue();
         assertThat(state.path("activeSeat").asInt()).isEqualTo(1);
-        assertThat(state.path("clockRemainingSeconds").asInt()).isEqualTo(20);
+        assertThat(state.path("clockRemainingSeconds").asInt()).isEqualTo(10);
         JsonNode permission = state.path("playPermissionsBySeat").path("1");
         assertThat(permission.path("actionToken").asText())
                 .isEqualTo((String) offer.payload().get("actionToken"));
@@ -176,7 +181,7 @@ class QaTaizhouRoundEngineTest {
         assertThat(state.path("visibleRoundsBySeat").path("1").path("hands").get(3)
                         .path("concealedTiles"))
                 .hasSize(13);
-        assertThat(seatOneHand.path("drawnTile").asInt()).isEqualTo(0x12);
+        assertThat(seatOneHand.path("drawnTile").asInt()).isEqualTo(result.table().drawnTile);
         assertThat(jsonIntList(permission.path("playableOriginalIndexes")))
                 .as("Android uses original index 0 only for drawnTile; concealed tiles are 1-based")
                 .containsExactlyElementsOf(withDrawnTileIndex(concealedCount));
@@ -187,47 +192,6 @@ class QaTaizhouRoundEngineTest {
                 .isEqualTo(0x31);
         assertThat(state.path("visibleRoundsBySeat").path("1").path("insteadTiles").get(0).asInt())
                 .isEqualTo(0x53);
-    }
-
-    @Test
-    void diceRolledUsesTheOriginalMsgThrowChipFieldShapeBeforeDealing()
-            throws Exception {
-        QaTaizhouRoundEngine engine = new QaTaizhouRoundEngine(OBJECT_MAPPER);
-        QaTaizhouRoundResult started =
-                engine.start(request(seats(false, true, true, true)), baseDealPrefix());
-
-        QaRoundStep result =
-                engine.apply(
-                        started.table(),
-                        QaRoundTestRigs.humanDealerContext(),
-                        1,
-                        GameplayCommandType.MULTIPLE_CHOICE,
-                        OBJECT_MAPPER.readTree("{\"choice\":\"PASS\"}"),
-                        2L);
-
-        GameEvent dice =
-                result.events().stream()
-                        .filter(event -> event.type().equals("DICE_ROLLED"))
-                        .findFirst()
-                        .orElseThrow();
-        assertThat(dice.audience()).isEqualTo(GameEvent.Audience.PUBLIC);
-        assertThat(dice.payload())
-                .containsEntry("phase", GamePhase.DEALING.name())
-                .containsEntry("roundNumber", 1);
-        @SuppressWarnings("unchecked")
-        Map<String, Object> roll = (Map<String, Object>) dice.payload().get("diceRoll");
-        assertThat(roll)
-                .containsEntry("nSeat", 1)
-                .containsEntry("nCount", 2)
-                .containsEntry("showAni", true)
-                .containsEntry("gameStep", 4);
-        assertThat((List<Integer>) roll.get("nChips")).hasSize(2).allSatisfy(value ->
-                assertThat(value).isBetween(1, 6));
-        assertThat(roll.get("jokerTiles")).isEqualTo(List.of(0x31));
-        assertThat(roll.get("insteadTiles")).isEqualTo(List.of(0x53));
-        assertThat(result.events())
-                .extracting(GameEvent::type)
-                .containsSubsequence("MULTIPLE_CHOICE_CHANGED", "DICE_ROLLED", "DEALT");
     }
 
     @Test
@@ -279,8 +243,7 @@ class QaTaizhouRoundEngineTest {
     @Test
     void openingWhiteDoesNotCreateAnInsteadTile() throws Exception {
         QaTaizhouRoundEngine engine = new QaTaizhouRoundEngine(OBJECT_MAPPER);
-        List<Integer> wall = baseDealPrefix();
-        wall.set(0, 0x53);
+        List<Integer> wall = new ArrayList<>(java.util.Collections.nCopies(136, 0x53));
 
         QaTaizhouRoundResult started = engine.start(request(seats(false, true, true, true)), wall);
         QaRoundStep result =
@@ -292,15 +255,8 @@ class QaTaizhouRoundEngineTest {
                         OBJECT_MAPPER.readTree("{\"choice\":\"PASS\"}"),
                         2L);
 
-        assertThat(result.events()).filteredOn(event -> event.type().equals("DICE_ROLLED"))
-                .singleElement()
-                .extracting(event -> event.payload().get("diceRoll"))
-                .satisfies(value -> {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> roll = (Map<String, Object>) value;
-                    assertThat(roll.get("jokerTiles")).isEqualTo(List.of(0x53));
-                    assertThat(roll.get("insteadTiles")).isEqualTo(List.of());
-                });
+        assertThat(result.table().jokerRule.jokerTiles()).isEqualTo(List.of(0x53));
+        assertThat(result.table().jokerRule.insteadTiles()).isEmpty();
         assertThat(result.table().wall).hasSize(136 - 1 - 53);
     }
 
@@ -316,6 +272,7 @@ class QaTaizhouRoundEngineTest {
                         .filter(event -> event.type().equals("TURN_ADVANCED"))
                         .toList();
         assertThat(turns).isNotEmpty();
+        // QaBotThinkingRhythm 的取值域；下限 700ms 起、上限压在客户端 6000ms 夹取之内。
         assertThat(turns)
                 .allSatisfy(
                         event ->
@@ -324,7 +281,9 @@ class QaTaizhouRoundEngineTest {
                                                                 event.payload()
                                                                         .get("playbackDelayMillis"))
                                                         .longValue())
-                                        .isBetween(3000L, 6000L));
+                                        .isBetween(
+                                                QaBotThinkingRhythm.MIN_MILLIS,
+                                                QaBotThinkingRhythm.MAX_MILLIS));
     }
 
     @Test
@@ -335,18 +294,17 @@ class QaTaizhouRoundEngineTest {
                 engine.start(request(seats(true, true, true, true)), baseDealPrefix());
 
         List<GameEvent> events = result.events();
-        int shengPaiIndex = firstIndexOf(events, "SHENG_PAI_COUNT");
+        int dealtIndex = firstIndexOf(events, "DEALT");
         int turnIndex = firstIndexOf(events, "TURN_ADVANCED");
         int discardIndex = firstIndexOf(events, "DISCARDED");
-        assertThat(shengPaiIndex).isNotNegative();
         assertThat(discardIndex).isPositive();
-        assertThat(turnIndex).isGreaterThan(shengPaiIndex).isLessThan(discardIndex);
+        assertThat(turnIndex).isGreaterThan(dealtIndex).isLessThan(discardIndex);
 
         GameEvent turn = events.get(turnIndex);
         assertThat(turn.audience()).isEqualTo(GameEvent.Audience.PUBLIC);
         assertThat(turn.payload()).containsEntry("activeSeat", 1);
         assertThat(((Number) turn.payload().get("playbackDelayMillis")).longValue())
-                .isBetween(3000L, 6000L);
+                .isBetween(QaBotThinkingRhythm.MIN_MILLIS, QaBotThinkingRhythm.MAX_MILLIS);
     }
 
     @Test

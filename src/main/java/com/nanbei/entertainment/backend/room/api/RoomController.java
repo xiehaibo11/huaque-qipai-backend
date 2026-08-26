@@ -3,6 +3,8 @@ package com.nanbei.entertainment.backend.room.api;
 import com.nanbei.entertainment.backend.room.application.RoomCatalogService;
 import com.nanbei.entertainment.backend.room.application.RoomCreateCommand;
 import com.nanbei.entertainment.backend.room.application.RoomGameView;
+import com.nanbei.entertainment.backend.room.application.RoomPlacementService;
+import com.nanbei.entertainment.backend.room.application.RoomPlacementView;
 import com.nanbei.entertainment.backend.room.application.RoomService;
 import com.nanbei.entertainment.backend.room.application.RoomSnapshot;
 import jakarta.validation.Valid;
@@ -31,10 +33,15 @@ import tools.jackson.databind.JsonNode;
 public class RoomController {
     private final RoomCatalogService catalogService;
     private final RoomService roomService;
+    private final RoomPlacementService placementService;
 
-    public RoomController(RoomCatalogService catalogService, RoomService roomService) {
+    public RoomController(
+            RoomCatalogService catalogService,
+            RoomService roomService,
+            RoomPlacementService placementService) {
         this.catalogService = catalogService;
         this.roomService = roomService;
+        this.placementService = placementService;
     }
 
     @GetMapping("/games")
@@ -67,6 +74,11 @@ public class RoomController {
                 .body(room);
     }
 
+    @GetMapping("/current")
+    RoomPlacementView current(@AuthenticationPrincipal Jwt jwt) {
+        return placementService.current(userId(jwt));
+    }
+
     @GetMapping("/{roomNumber}")
     RoomSnapshot get(
             @AuthenticationPrincipal Jwt jwt,
@@ -86,6 +98,13 @@ public class RoomController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable @Size(min = 6, max = 6) String roomNumber) {
         return roomService.join(userId(jwt), roomNumber);
+    }
+
+    @PostMapping("/{roomNumber}/leave")
+    RoomPlacementView leave(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable @Size(min = 6, max = 6) String roomNumber) {
+        return placementService.leave(userId(jwt), roomNumber);
     }
 
     @PostMapping("/{roomNumber}/dissolve")

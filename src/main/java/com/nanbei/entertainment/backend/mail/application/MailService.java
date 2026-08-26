@@ -16,11 +16,14 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.PageRequest;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class MailService {
+    private static final int MAX_CLAIM_BATCH = 10;
+    private static final int PAGE_SIZE = 10;
     private final MailRepository mailRepository;
     private final PlayerWalletRepository walletRepository;
     private final ObjectMapper objectMapper;
@@ -54,17 +57,32 @@ public class MailService {
         return new MailListResponse(items);
     }
 
+    @Transactional(readOnly = true)
+    public MailListResponse list(UUID userId, int page) {
+        if (page < 1) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "邮件页码不正确");
+        }
+        List<MailEntity> loaded =
+                mailRepository.findVisible(
+                        userId, Instant.now(), PageRequest.of(page - 1, PAGE_SIZE + 1));
+        boolean hasMore = loaded.size() > PAGE_SIZE;
+        List<MailListItem> items =
+                loaded.stream().limit(PAGE_SIZE).map(this::toListItem).toList();
+        return new MailListResponse(items, page, hasMore);
+    }
+
     @Transactional
     public MailDetailResponse detail(UUID userId, long mailId) {
+        Instant now = Instant.now();
         MailEntity mail =
                 mailRepository
                         .findByIdAndUserId(mailId, userId)
-                        .filter(candidate -> candidate.getDeletedAt() == null)
+                        .filter(candidate -> visible(candidate, now))
                         .orElseThrow(
                                 () ->
                                         new ApiException(
                                                 ErrorCode.MAIL_NOT_FOUND, "邮件不存在"));
-        mail.markRead(Instant.now());
+        mail.markRead(now);
         return new MailDetailResponse(
                 mail.getId(),
                 mail.getSender(),
@@ -85,25 +103,32 @@ public class MailService {
     @Transactional
     public MailDeletedCountResponse delete(UUID userId, List<Long> mailIds) {
         if (mailIds.isEmpty()) {
-            return new MailDeletedCountResponse(0);
+            return new MailDeletedCountResponse(0, List.of());
         }
         Instant now = Instant.now();
-        long deleted = 0;
+        List<Long> deletedMailIds = new ArrayList<>();
         for (MailEntity mail : mailRepository.findByUserIdAndIdIn(userId, mailIds)) {
-            if (mail.getDeletedAt() != null) {
+            if (!visible(mail, now)) {
+                continue;
+            }
+            if (mail.getReadAt() == null) {
                 continue;
             }
             if (mail.getClaimedAt() == null && hasAttachments(mail)) {
                 continue;
             }
             mail.markDeleted(now);
-            deleted++;
+            deletedMailIds.add(mail.getId());
         }
-        return new MailDeletedCountResponse(deleted);
+        return new MailDeletedCountResponse(deletedMailIds.size(), deletedMailIds);
     }
 
     @Transactional
     public MailClaimResponse claim(UUID userId, List<Long> mailIds) {
+        if (mailIds.size() > MAX_CLAIM_BATCH) {
+            throw new ApiException(
+                    ErrorCode.VALIDATION_FAILED, "单次最多领取10封邮件");
+        }
         Instant now = Instant.now();
         List<Long> claimedMailIds = new ArrayList<>();
         EnumMap<MailRewardType, Long> totals = new EnumMap<>(MailRewardType.class);
@@ -119,6 +144,7 @@ public class MailService {
                 for (MailAttachment attachment : attachmentsOf(mail)) {
                     credit(wallet, attachment, totals);
                 }
+                mail.markRead(now);
                 mail.markClaimed(now);
                 claimedMailIds.add(mail.getId());
             }
@@ -134,6 +160,13 @@ public class MailService {
         return mail.getDeletedAt() == null
                 && mail.getClaimedAt() == null
                 && hasAttachments(mail)
+                && !mail.getSendAt().isAfter(now)
+                && !mail.isExpired(now);
+    }
+
+    private static boolean visible(MailEntity mail, Instant now) {
+        return mail.getDeletedAt() == null
+                && !mail.getSendAt().isAfter(now)
                 && !mail.isExpired(now);
     }
 

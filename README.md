@@ -285,7 +285,7 @@ export ALIBABA_CLOUD_ACCESS_KEY_ID=...
 export ALIBABA_CLOUD_ACCESS_KEY_SECRET=...
 export ALIYUN_SMS_ENABLED=true
 export ALIYUN_SMS_REGION_ID=cn-hangzhou
-export ALIYUN_SMS_SIGN_NAME=广东万一塑胶材料有限公司
+export ALIYUN_SMS_SIGN_NAME=南北娱乐
 export ALIYUN_SMS_TEMPLATE_CODE=SMS_511015069
 ```
 
@@ -419,3 +419,17 @@ curl --fail --silent --show-error https://nanbeiyule.com/privacy
 cd /Users/mosc/Downloads/ZJYX/backend
 docker compose down
 ```
+
+---
+
+## 仓库导航（南北娱乐全平台）
+
+| 端 | 仓库地址 |
+| --- | --- |
+| 后端（Spring Boot / Java 21 / PostgreSQL） | https://github.com/xiehaibo11/huaque-qipai-backend |
+| 前端官网（Vue 3 / TypeScript / Vite） | https://github.com/xiehaibo11/huaque-qipai-frontend |
+| 安卓客户端（Android，架构对齐浙江游戏大厅） | https://github.com/xiehaibo11/huaque-qipai-android |
+| UI 设计源（PSD 源文件 / 生图方案，Git LFS） | https://github.com/xiehaibo11/huaque-qipai-ui |
+| 浙江游戏大厅逆向资料（原版设计证据） | https://github.com/xiehaibo11/zhejiang-game-hall |
+
+克隆任意一端后，按上表地址补齐其余仓库即可组成完整工作区；各仓库均为私有仓库，需要账号 xiehaibo11 授权访问。

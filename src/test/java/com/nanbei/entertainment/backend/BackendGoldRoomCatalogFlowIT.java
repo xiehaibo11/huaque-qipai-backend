@@ -48,8 +48,7 @@ class BackendGoldRoomCatalogFlowIT extends RoomFlowTestSupport {
         assertThat(conf.path("roomFlags")).hasSize(3);
         assertThat(conf.path("roomFlags").get(0).asInt()).isEqualTo(1);
         assertThat(conf.path("roomFlags").get(2).asInt()).isEqualTo(3);
-        // 无真实金币场匹配之前不下发在线人数，保持原版 CSB 里 _panelPlayerCount 的隐藏默认值。
-        assertThat(conf.path("showsPlayerCount").asBoolean()).isFalse();
+        assertThat(conf.path("showsPlayerCount").asBoolean()).isTrue();
 
         JsonNode levels = conf.path("levels");
         assertThat(levels).hasSize(3);
@@ -60,6 +59,7 @@ class BackendGoldRoomCatalogFlowIT extends RoomFlowTestSupport {
         assertThat(novice.path("dynamicCost").asBoolean()).isTrue();
         assertThat(novice.path("minRich").asLong()).isEqualTo(1000L);
         assertThat(novice.path("maxRich").asLong()).isEqualTo(60000L);
+        assertThat(novice.path("onlineCount").asLong()).isZero();
         // 新手场没有绶带；后端配置了 non_null 序列化，未配置的标签整个字段不下发。
         assertThat(novice.has("tagRibbon1")).isFalse();
         assertThat(novice.has("tagRibbon2")).isFalse();

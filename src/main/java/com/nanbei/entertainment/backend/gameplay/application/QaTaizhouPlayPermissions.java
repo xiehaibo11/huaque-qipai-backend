@@ -54,11 +54,9 @@ final class QaTaizhouPlayPermissions {
             // 碰/明杠待答窗口生效，因此不能挂在出牌权限上——客户端按 actionOffer 的
             // powerMask + contextTile 自行计算（TaizhouMahjongHandRenderer）。此字段保持为空。
             permission.put("actionMaskOriginalIndexes", List.of());
-            // 包牌预警色只能由服务端下发的 msgPreBaoPaiMah.nBaoPaiMahs 驱动
-            // （TaiZhou/TaiZhouMahjong/.../GameLayer/Module.luac:28-31，30109 的 GameKey 正是
-            // "TaiZhou.TaiZhouMahjong"，见 app/Config/GameSub.lua:104）。南北自建后端尚未实现
-            // 撩搭子包牌/不死包的包牌判定（见 D3 / BLOCKED-02A），因此如实下发空数组，不臆造。
-            permission.put("preBaoOriginalIndexes", List.of());
+            permission.put(
+                    "preBaoOriginalIndexes",
+                    QaTaizhouBaoPai.preBaoOriginalIndexes(table, seat));
             bySeat.put(Integer.toString(seat), permission);
         }
         return bySeat;

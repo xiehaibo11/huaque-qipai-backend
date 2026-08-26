@@ -328,6 +328,19 @@ class GameplaySessionServiceTest {
     }
 
     @Test
+    void dissolvedRoomReturnsDissolvedSnapshotForMatchPolling() {
+        GameRoomEntity room = room(30109L, 2);
+        room.dissolve(NOW);
+        when(roomRepository.findLockedByRoomNumber("123456")).thenReturn(Optional.of(room));
+        when(sessionRepository.findByRoomId(room.getId())).thenReturn(Optional.empty());
+        GameplaySnapshot snapshot = service.get(OWNER_ID, "123456");
+        // 安卓匹配轮询靠 phase=DISSOLVED 撤下等待页（原版房散通知），不能抛错。
+        assertThat(snapshot.phase()).isEqualTo(GamePhase.DISSOLVED);
+        assertThat(snapshot.mySeat()).isEqualTo(1);
+        assertThat(snapshot.seats()).isEmpty();
+    }
+
+    @Test
     void snapshotCarriesAuthoritativeRoundProjectionAndSettlementFromSessionState() throws Exception {
         stubSeatProfiles();
         GameRoomEntity room = room(30109L, 2);

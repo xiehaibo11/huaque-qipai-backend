@@ -30,16 +30,6 @@ public class OtpRequestRateLimiter {
                 >= 1) {
             reject("验证码发送过于频繁，请一分钟后再试");
         }
-        if (repository.countByPhoneNumberAndCreatedAtAfter(
-                        phoneNumber, now.minusSeconds(3_600))
-                >= 5) {
-            reject("该手机号本小时验证码次数已用尽");
-        }
-        if (repository.countByPhoneNumberAndCreatedAtAfter(
-                        phoneNumber, now.minusSeconds(86_400))
-                >= 10) {
-            reject("该手机号今日验证码次数已用尽");
-        }
     }
 
     private void reject(String message) {

@@ -1,6 +1,7 @@
 package com.nanbei.entertainment.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
@@ -9,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.nanbei.entertainment.backend.auth.domain.OtpChallengeEntity;
 import com.nanbei.entertainment.backend.auth.infrastructure.OtpChallengeRepository;
 import com.nanbei.entertainment.backend.auth.infrastructure.RefreshTokenRepository;
+import com.nanbei.entertainment.backend.avatar.application.AvatarService;
 import com.nanbei.entertainment.backend.common.config.AuthProperties;
 import com.nanbei.entertainment.backend.common.config.SecurityProperties;
 import com.nanbei.entertainment.backend.common.crypto.CryptoService;
@@ -37,6 +39,8 @@ class AuthenticationServiceOtpTest {
     @Mock UserRepository userRepository;
     @Mock UserIdentityRepository identityRepository;
     @Mock FriendPresenceService friendPresenceService;
+    @Mock AvatarService avatarService;
+    @Mock ExternalIdentityAccountResolver externalAccountResolver;
 
     AuthenticationService service;
 
@@ -57,9 +61,10 @@ class AuthenticationServiceOtpTest {
                         otpRepository,
                         refreshRepository,
                         userRepository,
-                        identityRepository,
                         List.of(),
-                        friendPresenceService);
+                        externalAccountResolver,
+                        friendPresenceService,
+                        avatarService);
     }
 
     @Test
@@ -77,5 +82,16 @@ class AuthenticationServiceOtpTest {
         InOrder order = inOrder(otpRepository, otpSender);
         order.verify(otpRepository).save(any(OtpChallengeEntity.class));
         order.verify(otpSender).send("13800138000", "123456");
+    }
+
+    @Test
+    void loginNeverConsumesAPhoneBindingChallenge() {
+        assertThatThrownBy(
+                        () -> service.verifyOtp("13800138000", "123456"))
+                .isInstanceOf(RuntimeException.class);
+
+        verify(otpRepository)
+                .findFirstByPhoneNumberAndPurposeAndConsumedAtIsNullOrderByCreatedAtDesc(
+                        "13800138000", "LOGIN");
     }
 }

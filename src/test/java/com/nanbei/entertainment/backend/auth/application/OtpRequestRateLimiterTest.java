@@ -3,6 +3,7 @@ package com.nanbei.entertainment.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.nanbei.entertainment.backend.auth.infrastructure.OtpChallengeRepository;
@@ -43,43 +44,37 @@ class OtpRequestRateLimiterTest {
     }
 
     @Test
-    void rejectsSixthRequestWithinOneHour() {
+    void permitsRequestWhenOnlyHourlyTotalWouldBeExceeded() {
         when(repository.countByPhoneNumberAndCreatedAtAfter(
                         PHONE, NOW.minusSeconds(60)))
                 .thenReturn(0L);
-        when(repository.countByPhoneNumberAndCreatedAtAfter(
+        lenient().when(repository.countByPhoneNumberAndCreatedAtAfter(
                         PHONE, NOW.minusSeconds(3_600)))
                 .thenReturn(5L);
 
-        assertRateLimited();
+        assertThatCode(() -> rateLimiter.check(PHONE)).doesNotThrowAnyException();
     }
 
     @Test
-    void rejectsEleventhRequestWithinOneDay() {
+    void permitsRequestWhenOnlyDailyTotalWouldBeExceeded() {
         when(repository.countByPhoneNumberAndCreatedAtAfter(
                         PHONE, NOW.minusSeconds(60)))
                 .thenReturn(0L);
-        when(repository.countByPhoneNumberAndCreatedAtAfter(
+        lenient().when(repository.countByPhoneNumberAndCreatedAtAfter(
                         PHONE, NOW.minusSeconds(3_600)))
                 .thenReturn(4L);
-        when(repository.countByPhoneNumberAndCreatedAtAfter(
-                        PHONE, NOW.minusSeconds(86_400)))
+        lenient().when(repository.countByPhoneNumberAndCreatedAtAfter(
+                        PHONE, Instant.parse("2026-07-25T16:00:00Z")))
                 .thenReturn(10L);
 
-        assertRateLimited();
+        assertThatCode(() -> rateLimiter.check(PHONE)).doesNotThrowAnyException();
     }
 
     @Test
-    void permitsRequestWithinAllLimits() {
+    void permitsRequestAfterMinuteCooldown() {
         when(repository.countByPhoneNumberAndCreatedAtAfter(
                         PHONE, NOW.minusSeconds(60)))
                 .thenReturn(0L);
-        when(repository.countByPhoneNumberAndCreatedAtAfter(
-                        PHONE, NOW.minusSeconds(3_600)))
-                .thenReturn(4L);
-        when(repository.countByPhoneNumberAndCreatedAtAfter(
-                        PHONE, NOW.minusSeconds(86_400)))
-                .thenReturn(9L);
 
         assertThatCode(() -> rateLimiter.check(PHONE)).doesNotThrowAnyException();
     }

@@ -46,6 +46,19 @@ class QaWinDetectorTest {
     }
 
     @Test
+    void jokerStandsBeforeEightAndNineToCompleteASequence() {
+        List<Integer> hand =
+                List.of(
+                        0x18, 0x19, JOKER,
+                        0x21, 0x22, 0x23,
+                        0x31, 0x32, 0x33,
+                        0x41, 0x41, 0x41,
+                        0x52, 0x52);
+
+        assertThat(QaWinDetector.canWin(hand)).isTrue();
+    }
+
+    @Test
     void jokerStandsInForThePairAndTriplet() {
         List<Integer> pairHand =
                 List.of(

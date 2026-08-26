@@ -60,7 +60,7 @@ class BackendQaBotAutoRoundFlowIT extends RoomFlowTestSupport {
         JsonNode multipleStarted = eventByType(events, "MULTIPLE_CHOICE_STARTED");
         assertThat(multipleStarted.path("payload").path("qaMode").asBoolean()).isTrue();
         assertThat(multipleStarted.path("payload").path("multipleChoice").path("goldMode").asBoolean())
-                .isTrue();
+                .isFalse();
         assertThat(multipleStarted.path("payload").path("multipleChoice").path("allowedChoices"))
                 .hasSize(3);
 
@@ -75,7 +75,7 @@ class BackendQaBotAutoRoundFlowIT extends RoomFlowTestSupport {
                 .doesNotContain("假人")
                 .doesNotContain("机用户");
         assertThat(snapshot.path("multipleChoice").path("choiceActive").asBoolean()).isTrue();
-        assertThat(snapshot.path("multipleChoice").path("goldMode").asBoolean()).isTrue();
+        assertThat(snapshot.path("multipleChoice").path("goldMode").asBoolean()).isFalse();
         assertThat(snapshot.path("visibleRound").path("hands")).hasSize(4);
         assertThat(snapshot.path("visibleRound").path("hands").get(0).path("concealedTiles")).isEmpty();
         assertThat(snapshot.has("settlement")).isFalse();

@@ -477,5 +477,9 @@ final class QaMahjongAutoRoundEngine {
                 throw new IllegalArgumentException("invalid QA seat profile");
             }
         }
+
+        boolean caishenPropActive() {
+            return false;
+        }
     }
 }

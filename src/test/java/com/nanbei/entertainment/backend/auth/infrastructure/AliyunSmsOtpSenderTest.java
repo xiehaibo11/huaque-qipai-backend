@@ -26,14 +26,14 @@ class AliyunSmsOtpSenderTest {
                         new SmsProperties(
                                 true,
                                 "cn-hangzhou",
-                                "广东万一塑胶材料有限公司",
+                                "南北娱乐",
                                 "SMS_123456789"),
                         gateway);
 
         sender.send("13800138000", "123456");
 
         assertThat(captured.get().phoneNumber()).isEqualTo("13800138000");
-        assertThat(captured.get().signName()).isEqualTo("广东万一塑胶材料有限公司");
+        assertThat(captured.get().signName()).isEqualTo("南北娱乐");
         assertThat(captured.get().templateCode()).isEqualTo("SMS_123456789");
         assertThat(captured.get().templateParam()).isEqualTo("{\"code\":\"123456\"}");
     }
@@ -45,7 +45,7 @@ class AliyunSmsOtpSenderTest {
                         new SmsProperties(
                                 true,
                                 "cn-hangzhou",
-                                "广东万一塑胶材料有限公司",
+                                "南北娱乐",
                                 ""),
                         command -> new SmsGateway.SendResult("OK", "OK", "request-1"));
 
@@ -64,7 +64,7 @@ class AliyunSmsOtpSenderTest {
                         new SmsProperties(
                                 true,
                                 "cn-hangzhou",
-                                "广东万一塑胶材料有限公司",
+                                "南北娱乐",
                                 "SMS_123456789"),
                         command ->
                                 new SmsGateway.SendResult(
@@ -104,7 +104,7 @@ class AliyunSmsOtpSenderTest {
                         new SmsProperties(
                                 true,
                                 "cn-hangzhou",
-                                "广东万一塑胶材料有限公司",
+                                "南北娱乐",
                                 "SMS_123456789"),
                         command ->
                                 {

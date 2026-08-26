@@ -43,9 +43,18 @@ public class OtpChallengeEntity {
 
     public OtpChallengeEntity(
             String phoneNumber, String codeHash, Instant expiresAt, int maxAttempts) {
+        this(phoneNumber, "LOGIN", codeHash, expiresAt, maxAttempts);
+    }
+
+    public OtpChallengeEntity(
+            String phoneNumber,
+            String purpose,
+            String codeHash,
+            Instant expiresAt,
+            int maxAttempts) {
         this.id = UUID.randomUUID();
         this.phoneNumber = phoneNumber;
-        this.purpose = "LOGIN";
+        this.purpose = purpose;
         this.codeHash = codeHash;
         this.expiresAt = expiresAt;
         this.maxAttempts = maxAttempts;
@@ -70,6 +79,14 @@ public class OtpChallengeEntity {
 
     public UUID getId() {
         return id;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+
+    public String getPurpose() {
+        return purpose;
     }
 
     public Instant getExpiresAt() {

@@ -1,7 +1,10 @@
 package com.nanbei.entertainment.backend.gamehome.domain;
 
+import com.nanbei.entertainment.backend.common.profile.ProfileSource;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
@@ -22,6 +25,10 @@ public class PlayerProfileEntity {
     @Column(name = "avatar_key", nullable = false, length = 120)
     private String avatarKey;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "avatar_source", nullable = false, length = 20)
+    private ProfileSource avatarSource;
+
     @Column(name = "membership_level", nullable = false)
     private int membershipLevel;
 
@@ -41,6 +48,7 @@ public class PlayerProfileEntity {
         this.userId = userId;
         this.publicPlayerId = publicPlayerId;
         this.avatarKey = avatarKey;
+        this.avatarSource = ProfileSource.SYSTEM;
         this.membershipLevel = membershipLevel;
     }
 
@@ -73,6 +81,15 @@ public class PlayerProfileEntity {
             throw new IllegalArgumentException("avatarKey must not be blank");
         }
         this.avatarKey = avatarKey;
+    }
+
+    public ProfileSource getAvatarSource() {
+        return avatarSource;
+    }
+
+    public void setAvatar(String avatarKey, ProfileSource source) {
+        setAvatarKey(avatarKey);
+        avatarSource = source;
     }
 
     public int getMembershipLevel() {

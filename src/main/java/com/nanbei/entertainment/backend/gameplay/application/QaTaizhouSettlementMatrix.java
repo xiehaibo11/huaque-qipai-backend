@@ -19,7 +19,54 @@ final class QaTaizhouSettlementMatrix {
         }
         collectWinnerPayments(table, winnerSeat, seatScores, deltas);
         settleIdlePairs(table, winnerSeat, seatScores, deltas);
-        return deltas;
+        if (table.baoPaiSeat != null) {
+            deltas = QaTaizhouBaoPai.reassign(deltas, table.baoPaiSeat);
+        }
+        return table.goldMode ? capGoldLosses(table, deltas) : deltas;
+    }
+
+    /**
+     * 抄底保护：金币场玩家最多输掉开桌时持有的金币；不足部分按赢家原始收益占比缩减。
+     * 原厂抓包证明会执行抄底，但只有一个破产样本，不足以恢复其二次舍入次序；这里保持
+     * 服务端零和及钱包不透支，待更多样本只替换本函数。
+     */
+    private static Map<Integer, Long> capGoldLosses(
+            QaRoundTable table, Map<Integer, Long> rawDeltas) {
+        Map<Integer, Long> capped = new LinkedHashMap<>();
+        long affordableLosses = 0L;
+        long rawWinnings = 0L;
+        for (int seat = 1; seat <= table.chairCount; seat++) {
+            long raw = rawDeltas.getOrDefault(seat, 0L);
+            if (raw < 0L) {
+                long balance = table.openingCoinsBySeat.getOrDefault(seat, 0L);
+                long loss = Math.min(Math.negateExact(raw), balance);
+                capped.put(seat, -loss);
+                affordableLosses = Math.addExact(affordableLosses, loss);
+            } else {
+                capped.put(seat, 0L);
+                rawWinnings = Math.addExact(rawWinnings, raw);
+            }
+        }
+        if (rawWinnings == 0L) {
+            return capped;
+        }
+        long assigned = 0L;
+        for (int seat = 1; seat <= table.chairCount; seat++) {
+            long raw = rawDeltas.getOrDefault(seat, 0L);
+            if (raw > 0L) {
+                long win = Math.multiplyExact(raw, affordableLosses) / rawWinnings;
+                capped.put(seat, win);
+                assigned = Math.addExact(assigned, win);
+            }
+        }
+        long remainder = affordableLosses - assigned;
+        for (int seat = 1; remainder > 0L && seat <= table.chairCount; seat++) {
+            if (rawDeltas.getOrDefault(seat, 0L) > 0L) {
+                capped.put(seat, capped.get(seat) + 1L);
+                remainder--;
+            }
+        }
+        return capped;
     }
 
     private static Map<Integer, Long> zeroDeltas(QaRoundTable table) {
@@ -37,7 +84,15 @@ final class QaTaizhouSettlementMatrix {
             Map<Integer, Long> deltas) {
         for (int seat = 1; seat <= table.chairCount; seat++) {
             if (seat != winnerSeat) {
-                transfer(deltas, seat, winnerSeat, winnerPayment(table, winnerSeat, seat, seatScores));
+                transfer(
+                        deltas,
+                        seat,
+                        winnerSeat,
+                        scaledPayment(
+                                table,
+                                seat,
+                                winnerSeat,
+                                winnerPayment(table, winnerSeat, seat, seatScores)));
             }
         }
     }
@@ -86,21 +141,36 @@ final class QaTaizhouSettlementMatrix {
             return;
         }
         if (leftHu >= MAX_HU) {
-            transfer(deltas, rightSeat, leftSeat, MAX_HU);
+            transfer(deltas, rightSeat, leftSeat, scaledPayment(table, rightSeat, leftSeat, MAX_HU));
             return;
         }
         if (rightHu >= MAX_HU) {
-            transfer(deltas, leftSeat, rightSeat, MAX_HU);
+            transfer(deltas, leftSeat, rightSeat, scaledPayment(table, leftSeat, rightSeat, MAX_HU));
             return;
         }
         int diff = Math.abs(leftHu - rightHu);
         long payment =
                 leftSeat == table.dealerSeat || rightSeat == table.dealerSeat ? diff : half(diff);
         if (leftHu > rightHu) {
-            transfer(deltas, rightSeat, leftSeat, payment);
+            transfer(deltas, rightSeat, leftSeat, scaledPayment(table, rightSeat, leftSeat, payment));
         } else {
-            transfer(deltas, leftSeat, rightSeat, payment);
+            transfer(deltas, leftSeat, rightSeat, scaledPayment(table, leftSeat, rightSeat, payment));
         }
+    }
+
+    private static long scaledPayment(
+            QaRoundTable table, int leftSeat, int rightSeat, long huPayment) {
+        long payment = Math.multiplyExact(huPayment, table.baseScore);
+        payment = Math.multiplyExact(payment, choiceMultiplier(table, leftSeat));
+        return Math.multiplyExact(payment, choiceMultiplier(table, rightSeat));
+    }
+
+    private static long choiceMultiplier(QaRoundTable table, int seat) {
+        return switch (table.choices().getOrDefault(seat, "PASS")) {
+            case "DEFAULT", "ADD" -> 2L;
+            case "SUPER" -> 4L;
+            default -> 1L;
+        };
     }
 
     private static void transfer(

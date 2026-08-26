@@ -37,6 +37,7 @@ public class RoomService {
     private final RoomRuleAssembler ruleAssembler;
     private final CryptoService cryptoService;
     private final ObjectMapper objectMapper;
+    private final RoomPlacementService placementService;
 
     public RoomService(
             GameRoomRepository roomRepository,
@@ -47,7 +48,8 @@ public class RoomService {
             PlayerWalletRepository walletRepository,
             RoomRuleAssembler ruleAssembler,
             CryptoService cryptoService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            RoomPlacementService placementService) {
         this.roomRepository = roomRepository;
         this.gameRepository = gameRepository;
         this.configRepository = configRepository;
@@ -57,13 +59,14 @@ public class RoomService {
         this.ruleAssembler = ruleAssembler;
         this.cryptoService = cryptoService;
         this.objectMapper = objectMapper;
+        this.placementService = placementService;
     }
 
     @Transactional
     public RoomSnapshot create(
             UUID ownerUserId, RoomCreateCommand command, String idempotencyKey) {
         String safeKey = requireIdempotencyKey(idempotencyKey);
-        roomRepository.acquireCreationLock(ownerUserId.toString());
+        placementService.lockUser(ownerUserId);
         String requestHash = cryptoService.sha256(command.canonicalValue());
         var existing =
                 roomRepository.findByOwnerUserIdAndCreationIdempotencyKey(
@@ -76,11 +79,7 @@ public class RoomService {
             }
             return RoomSnapshot.from(existing.get());
         }
-        if (roomRepository
-                .findByOwnerUserIdAndStatusNot(ownerUserId, RoomStatus.DISSOLVED)
-                .isPresent()) {
-            throw new ApiException(ErrorCode.ROOM_ALREADY_OPEN, "当前已有未结束的房间");
-        }
+        placementService.requireNoOtherActiveBoxRoom(ownerUserId, null);
 
         RoomGameId gameId = new RoomGameId(command.lobbyId(), command.gameId());
         var game =
@@ -158,17 +157,21 @@ public class RoomService {
     @Transactional(readOnly = true)
     public RoomSnapshot get(UUID userId, String roomNumber) {
         GameRoomEntity room = requireRoom(roomNumber);
+        placementService.requireBoxRoom(room);
         requireParticipant(userId, room);
         return RoomSnapshot.from(room);
     }
 
     @Transactional
     public RoomSnapshot join(UUID userId, String roomNumber) {
+        placementService.lockUser(userId);
         GameRoomEntity room = requireLockedRoom(roomNumber);
+        placementService.requireBoxRoom(room);
         RoomParticipantId participantId = new RoomParticipantId(room.getId(), userId);
         if (participantRepository.existsById(participantId)) {
             return RoomSnapshot.from(room);
         }
+        placementService.requireNoOtherActiveBoxRoom(userId, room.getId());
         if (room.getStatus() != RoomStatus.OPEN) {
             throw new ApiException(ErrorCode.ROOM_ILLEGAL_STATE, "已开局或已解散房间不能加入");
         }
@@ -185,6 +188,7 @@ public class RoomService {
     @Transactional
     public RoomSnapshot firstRound(UUID userId, String roomNumber) {
         GameRoomEntity room = requireLockedRoom(roomNumber);
+        placementService.requireBoxRoom(room);
         requireOwner(userId, room);
         if (room.getStatus() == RoomStatus.CHARGED) {
             return RoomSnapshot.from(room);
@@ -221,6 +225,7 @@ public class RoomService {
     @Transactional
     public RoomSnapshot dissolve(UUID userId, String roomNumber) {
         GameRoomEntity room = requireLockedRoom(roomNumber);
+        placementService.requireBoxRoom(room);
         requireOwner(userId, room);
         if (room.getStatus() == RoomStatus.DISSOLVED) {
             return RoomSnapshot.from(room);

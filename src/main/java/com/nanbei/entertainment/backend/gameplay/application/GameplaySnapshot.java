@@ -10,6 +10,8 @@ public record GameplaySnapshot(
         UUID sessionId,
         String roomNumber,
         long gameId,
+        int roomMode,
+        String roomVenue,
         GamePhase phase,
         int roundNumber,
         long revision,
@@ -54,6 +56,8 @@ public record GameplaySnapshot(
                 sessionId,
                 roomNumber,
                 gameId,
+                0,
+                "",
                 phase,
                 roundNumber,
                 revision,
@@ -97,6 +101,8 @@ public record GameplaySnapshot(
                 sessionId,
                 roomNumber,
                 gameId,
+                0,
+                "",
                 phase,
                 roundNumber,
                 revision,
@@ -124,6 +130,7 @@ public record GameplaySnapshot(
 
     public GameplaySnapshot {
         seats = List.copyOf(seats);
+        roomVenue = roomVenue == null ? "" : roomVenue;
         if (activeSeat != null && (activeSeat <= 0 || activeSeat > chairCount)) {
             throw new IllegalArgumentException("activeSeat is outside chairCount");
         }

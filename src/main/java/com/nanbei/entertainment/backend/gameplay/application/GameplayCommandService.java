@@ -9,6 +9,7 @@ import com.nanbei.entertainment.backend.gameplay.domain.GameActionNotAllowedExce
 import com.nanbei.entertainment.backend.gameplay.domain.GameCommandEntity;
 import com.nanbei.entertainment.backend.gameplay.domain.GameEvent;
 import com.nanbei.entertainment.backend.gameplay.domain.GameEventEntity;
+import com.nanbei.entertainment.backend.gameplay.domain.GamePhase;
 import com.nanbei.entertainment.backend.gameplay.domain.GameSessionEntity;
 import com.nanbei.entertainment.backend.gameplay.domain.GameSessionSeatEntity;
 import com.nanbei.entertainment.backend.gameplay.domain.ReadyCommand;
@@ -32,11 +33,11 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class GameplayCommandService {
-    /** 8 个回合命令：仅已进入 QA 或 SERVER_AUTHORITY 回合的会话受理。 */
     private static final Set<GameplayCommandType> ROUND_COMMANDS =
             Set.of(
                     GameplayCommandType.DISCARD,
@@ -59,6 +60,12 @@ public class GameplayCommandService {
     private final QaGameplayBotService qaBotService;
     private final QaRoundCoordinator qaRoundCoordinator;
     private final WaitingRoomEngine waitingRoomEngine = new WaitingRoomEngine();
+    private final GameplayClientForwardHandler clientForwardHandler;
+    private GoldRoomWalletSettlementService goldWalletSettlementService;
+    @Autowired
+    void setGoldWalletSettlementService(GoldRoomWalletSettlementService service) {
+        goldWalletSettlementService = service;
+    }
 
     @Autowired
     public GameplayCommandService(
@@ -81,7 +88,6 @@ public class GameplayCommandService {
                 Clock.systemUTC(),
                 qaBotService);
     }
-
     GameplayCommandService(
             GameRoomRepository roomRepository,
             GameSessionRepository sessionRepository,
@@ -102,7 +108,6 @@ public class GameplayCommandService {
                 clock,
                 null);
     }
-
     GameplayCommandService(
             GameRoomRepository roomRepository,
             GameSessionRepository sessionRepository,
@@ -123,8 +128,10 @@ public class GameplayCommandService {
         this.clock = clock;
         this.qaBotService = qaBotService;
         this.qaRoundCoordinator = new QaRoundCoordinator(qaBotService, objectMapper);
+        this.clientForwardHandler =
+                new GameplayClientForwardHandler(
+                        commandRepository, eventRepository, objectMapper);
     }
-
     @Transactional(noRollbackFor = GameplaySessionCompletedException.class)
     public GameplayCommandResponse submit(
             UUID userId,
@@ -178,6 +185,10 @@ public class GameplayCommandService {
             return submitEarlyStart(
                     userId, safeKey, requestHash, request, room, session, actorSeat, seats, now);
         }
+        if (request.type() == GameplayCommandType.CLIENT_FORWARD) {
+            return clientForwardHandler.submit(
+                    userId, safeKey, requestHash, request, session, actorSeat, now);
+        }
         if (ROUND_COMMANDS.contains(request.type())) {
             return submitRoundCommand(
                     userId, safeKey, requestHash, request, room, session, actorSeat, seats, now);
@@ -226,7 +237,6 @@ public class GameplayCommandService {
         return response;
     }
 
-
     private GameplayCommandResponse submitQaAutoRound(
             UUID userId,
             String safeKey,
@@ -248,7 +258,7 @@ public class GameplayCommandService {
         QaRoundCoordinator.QaRoundCommandOutcome outcome =
                 qaRoundCoordinator.startAutoRound(
                         room, session, currentSeats, request.expectedRevision(), now);
-        return persistRoundOutcome(userId, safeKey, requestHash, request, session, actorSeat, outcome, now);
+        return persistRoundOutcome(userId, safeKey, requestHash, request, room, session, actorSeat, outcome, now);
     }
 
     private GameplayCommandResponse submitStartRound(
@@ -264,14 +274,9 @@ public class GameplayCommandService {
         QaRoundCoordinator.QaRoundCommandOutcome outcome =
                 qaRoundCoordinator.startServerAuthoritativeRound(
                         room, session, userId, currentSeats, request.expectedRevision(), now);
-        return persistRoundOutcome(userId, safeKey, requestHash, request, session, actorSeat, outcome, now);
+        return persistRoundOutcome(userId, safeKey, requestHash, request, room, session, actorSeat, outcome, now);
     }
 
-    /**
-     * EARLY_START（南北自建 QA 简化，对齐 msgAdvanceStart 语义但不含同意/拒绝交互）：
-     * 等待态房主立即用 QA 假人补齐空位并启动完整轮转，与 QA_AUTO_ROUND 同路径；
-     * 非房主与非 QA 配置一律拒绝，QA 假人视为同意。
-     */
     private GameplayCommandResponse submitEarlyStart(
             UUID userId,
             String safeKey,
@@ -301,7 +306,7 @@ public class GameplayCommandService {
         QaRoundCoordinator.QaRoundCommandOutcome outcome =
                 qaRoundCoordinator.startAutoRound(
                         room, session, currentSeats, request.expectedRevision(), now);
-        return persistRoundOutcome(userId, safeKey, requestHash, request, session, actorSeat, outcome, now);
+        return persistRoundOutcome(userId, safeKey, requestHash, request, room, session, actorSeat, outcome, now);
     }
 
     private GameplayCommandResponse submitRoundCommand(
@@ -322,7 +327,7 @@ public class GameplayCommandService {
         QaRoundCoordinator.QaRoundCommandOutcome outcome =
                 qaRoundCoordinator.applyCommand(
                         room, session, actorSeat, seats, request.type(), request.payload(), now);
-        return persistRoundOutcome(userId, safeKey, requestHash, request, session, actorSeat, outcome, now);
+        return persistRoundOutcome(userId, safeKey, requestHash, request, room, session, actorSeat, outcome, now);
     }
 
     private GameplayCommandResponse persistRoundOutcome(
@@ -330,10 +335,14 @@ public class GameplayCommandService {
             String safeKey,
             String requestHash,
             GameplayCommandRequest request,
+            GameRoomEntity room,
             GameSessionEntity session,
             GameSessionSeatEntity actorSeat,
             QaRoundCoordinator.QaRoundCommandOutcome outcome,
             Instant now) {
+        if (goldWalletSettlementService != null) {
+            goldWalletSettlementService.settle(room, outcome.seats(), outcome.scoreDeltasBySeat());
+        }
         for (GameSessionSeatEntity seat : outcome.seats()) {
             Long delta = outcome.scoreDeltasBySeat().get(seat.getId().getSeatNumber());
             if (delta != null && delta != 0L) {
@@ -341,7 +350,7 @@ public class GameplayCommandService {
             }
         }
         session.advance(
-                outcome.phase(),
+                persistedPhase(outcome.phase(), outcome.state()),
                 outcome.roundNumber(),
                 outcome.revision(),
                 json(outcome.state()),
@@ -357,7 +366,8 @@ public class GameplayCommandService {
                         outcome.events().getFirst().type(),
                         actorSeat.getId().getSeatNumber(),
                         actorSeat.isReady(),
-                        false);
+                        false, GameplayEventView.visibleTo(
+                                objectMapper, session.getId(), actorSeat.getId().getSeatNumber(), outcome.events()));
         GameCommandEntity command =
                 new GameCommandEntity(
                         session.getId(),
@@ -372,6 +382,11 @@ public class GameplayCommandService {
         return response;
     }
 
+    static GamePhase persistedPhase(GamePhase phase, JsonNode state) {
+        return phase == GamePhase.ROUND_RESULT
+                        && state != null && state.hasNonNull("totalResult")
+                ? GamePhase.COMPLETED : phase;
+    }
     private CommandResult<WaitingRoomState> handle(
             WaitingRoomState state,
             GameRoomEntity room,

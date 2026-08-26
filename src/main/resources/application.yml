@@ -59,6 +59,14 @@ nanbei:
     app-secret: ${WECHAT_APP_SECRET:}
     connect-timeout: PT3S
     read-timeout: PT5S
+    push:
+      enabled: ${WECHAT_PUSH_ENABLED:false}
+      token: ${WECHAT_PUSH_TOKEN:}
+      encoding-aes-key: ${WECHAT_PUSH_ENCODING_AES_KEY:}
+    subscription:
+      enabled: ${WECHAT_SUBSCRIPTION_ENABLED:false}
+      template-id: ${WECHAT_SUBSCRIPTION_TEMPLATE_ID:y4Nkx2Owlb1z6F0PuTMxJMMrSWkm0jlG661bLkGOErA}
+      scene: ${WECHAT_SUBSCRIPTION_SCENE:1000}
   one-tap:
     enabled: ${ALIYUN_ONE_TAP_ENABLED:false}
     region-id: ${ALIYUN_ONE_TAP_REGION_ID:cn-hangzhou}
@@ -91,3 +99,7 @@ nanbei:
   gameplay:
     qa:
       enabled: ${GAMEPLAY_QA_ENABLED:false}
+    gold-room:
+      match-timeout: ${GOLD_MATCH_TIMEOUT:120s}
+      sweep-interval: ${GOLD_MATCH_SWEEP_INTERVAL:30s}
+      sweep-initial-delay: ${GOLD_MATCH_SWEEP_INITIAL_DELAY:10s}

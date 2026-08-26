@@ -1,0 +1,21 @@
+# 构建产物
+target/
+build/
+out/
+
+# 本机环境与密钥（不得入库）
+.env
+.env.local
+*.pem
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 日志与临时文件
+*.log
+.DS_Store
+
+# Maven Wrapper jar 走 LFS（见 .gitattributes），此处不重复排除

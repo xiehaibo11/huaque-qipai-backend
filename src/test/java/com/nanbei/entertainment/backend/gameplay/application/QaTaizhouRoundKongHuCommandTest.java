@@ -138,6 +138,89 @@ class QaTaizhouRoundKongHuCommandTest {
     }
 
     @Test
+    void aFillKongWaitsForRobKongHuBeforeUpgradingThePong() throws Exception {
+        QaTaizhouRoundEngine engine = new QaTaizhouRoundEngine(OBJECT_MAPPER);
+        QaRoundContext context =
+                new QaRoundContext(
+                        "123456",
+                        "不平搓/不封顶",
+                        QaTaizhouRoundEngineTest.seats(false, false, false, false),
+                        QaRoundTestRigs.NOW);
+        QaRoundTable table = QaRoundTable.newRound(4, 1, 1, java.util.Set.of());
+        table.stage = QaRoundTable.Stage.AWAIT_PLAY;
+        table.activeSeat = 1;
+        table.wall.addAll(java.util.Collections.nCopies(32, 0x19));
+        table.hands().get(1).add(0x25);
+        table.melds()
+                .get(1)
+                .add(new QaRoundTable.Meld("PONG", List.of(0x25, 0x25, 0x25), 2));
+        table.hands()
+                .get(2)
+                .addAll(
+                        List.of(
+                                0x11, 0x12, 0x13,
+                                0x21, 0x22, 0x23,
+                                0x24, 0x26,
+                                0x31, 0x32, 0x33,
+                                0x41, 0x41));
+        QaRoundTable.PendingOffer fillOffer =
+                new QaRoundTable.PendingOffer(
+                        table.nextOfferId++,
+                        "fill-token",
+                        QaPowerMask.PLAY | QaPowerMask.TKONG,
+                        0x25,
+                        List.of(),
+                        List.of(new QaMeldCandidates.KongOption("FILL", 0x25)),
+                        1,
+                        true);
+        table.offers().put(1, fillOffer);
+
+        QaRoundStep robWindow =
+                engine.apply(
+                        table,
+                        context,
+                        1,
+                        GameplayCommandType.KONG,
+                        OBJECT_MAPPER.readTree(
+                                "{\"tileValue\":37,\"kongType\":\"FILL\",\"actionToken\":\"fill-token\"}"),
+                        2L);
+
+        assertThat(robWindow.events()).extracting(GameEvent::type)
+                .containsExactly("ACTION_OFFERED");
+        assertThat(table.melds().get(1))
+                .containsExactly(new QaRoundTable.Meld("PONG", List.of(0x25, 0x25, 0x25), 2));
+        assertThat(table.hands().get(1)).containsExactly(0x25);
+        Map<String, Object> huOffer = QaRoundTestRigs.lastOffer(robWindow.events(), 2);
+        assertThat((Integer) huOffer.get("powerMask") & QaPowerMask.HU).isNotZero();
+        assertThat((Integer) huOffer.get("powerMask") & QaPowerMask.CANCEL).isNotZero();
+
+        QaRoundStep result =
+                engine.apply(
+                        table,
+                        context,
+                        2,
+                        GameplayCommandType.HU,
+                        OBJECT_MAPPER.readTree(
+                                "{\"actionToken\":\"" + huOffer.get("actionToken") + "\"}"),
+                        3L);
+
+        assertThat(result.roundFinished()).isTrue();
+        assertThat(result.events()).extracting(GameEvent::type)
+                .containsExactly("WIN_DECLARED", "SCORES_SETTLED", "ROUND_RESULT_READY");
+        assertThat(result.events().get(0).payload())
+                .containsEntry("winnerSeat", 2)
+                .containsEntry("winType", "QIANGGANG")
+                .containsEntry("discarderSeat", 1)
+                .containsEntry("endPlayerState", "EPS_HU");
+        assertThat(table.outcome.endStates())
+                .containsEntry(1, "EPS_ROBKONG")
+                .containsEntry(2, "EPS_HU");
+        assertThat(table.melds().get(1))
+                .containsExactly(new QaRoundTable.Meld("PONG", List.of(0x25, 0x25, 0x25), 2));
+        assertThat(table.hands().get(1)).containsExactly(0x25);
+    }
+
+    @Test
     void aSelfDrawnHuEndsTheRoundAsZimo() throws Exception {
         QaTaizhouRoundEngine engine = new QaTaizhouRoundEngine(OBJECT_MAPPER);
         QaRoundStep started =
@@ -165,9 +248,9 @@ class QaTaizhouRoundKongHuCommandTest {
                 .containsEntry("winType", "ZIMO")
                 .containsEntry("endPlayerState", "EPS_HU");
         assertThat(step.scoreDeltasBySeat())
-                .containsEntry(1, 84L)
-                .containsEntry(2, -28L)
-                .containsEntry(3, -28L)
+                .containsEntry(1, 196L)
+                .containsEntry(2, -56L)
+                .containsEntry(3, -112L)
                 .containsEntry(4, -28L);
     }
 
@@ -199,8 +282,8 @@ class QaTaizhouRoundKongHuCommandTest {
                 .containsEntry("discarderSeat", 1);
         assertThat(step.scoreDeltasBySeat())
                 .containsEntry(1, -20L)
-                .containsEntry(2, 40L)
-                .containsEntry(3, -10L)
+                .containsEntry(2, 70L)
+                .containsEntry(3, -40L)
                 .containsEntry(4, -10L);
         JsonNode originalMsgResult =
                 engine.sessionState(step.table(), QaRoundTestRigs.botDealerContext())
@@ -208,7 +291,7 @@ class QaTaizhouRoundKongHuCommandTest {
                         .path("originalMsgResult");
         assertThat(originalMsgResult.path("XY_ID").asInt()).isEqualTo(1026);
         assertThat(jsonIntList(originalMsgResult.path("nWinLost")))
-                .containsExactly(-20, 40, -10, -10);
+                .containsExactly(-20, 70, -40, -10);
         assertThat(jsonIntList(originalMsgResult.path("nPlayerState")))
                 .containsExactly(2, 1, 0, 0);
         assertThat(originalMsgResult.path("nDanFang").asInt()).isEqualTo(0x39);

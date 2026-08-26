@@ -2,6 +2,10 @@ package com.nanbei.entertainment.backend.personalcenter.application;
 
 import com.nanbei.entertainment.backend.gamehome.application.GameHomeService;
 import com.nanbei.entertainment.backend.gamehome.application.GameHomeSnapshot;
+import com.nanbei.entertainment.backend.membership.application.MembershipStatus;
+import com.nanbei.entertainment.backend.membership.application.MembershipStatusService;
+import com.nanbei.entertainment.backend.realname.application.RealNameService;
+import com.nanbei.entertainment.backend.realname.application.RealNameStatus;
 import com.nanbei.entertainment.backend.user.domain.UserIdentityEntity;
 import com.nanbei.entertainment.backend.user.infrastructure.UserIdentityRepository;
 import java.util.LinkedHashSet;
@@ -16,14 +20,20 @@ public class PersonalCenterService {
     private final GameHomeService gameHomeService;
     private final UserIdentityRepository identityRepository;
     private final PersonalCenterFunctionService functionService;
+    private final RealNameService realNameService;
+    private final MembershipStatusService membershipStatusService;
 
     public PersonalCenterService(
             GameHomeService gameHomeService,
             UserIdentityRepository identityRepository,
-            PersonalCenterFunctionService functionService) {
+            PersonalCenterFunctionService functionService,
+            RealNameService realNameService,
+            MembershipStatusService membershipStatusService) {
         this.gameHomeService = gameHomeService;
         this.identityRepository = identityRepository;
         this.functionService = functionService;
+        this.realNameService = realNameService;
+        this.membershipStatusService = membershipStatusService;
     }
 
     @Transactional(readOnly = true)
@@ -32,6 +42,9 @@ public class PersonalCenterService {
         List<UserIdentityEntity> identities =
                 identityRepository.findByUser_IdOrderByCreatedAtAsc(userId);
         String phone = firstPhoneNumber(identities);
+        RealNameStatus health = realNameService.status(userId);
+        MembershipStatus membership =
+                membershipStatusService.snapshot(userId);
 
         return new PersonalCenterSnapshot(
                 new PersonalCenterSnapshot.Player(
@@ -52,13 +65,24 @@ public class PersonalCenterService {
                 new PersonalCenterSnapshot.Region(
                         home.region().lobbyId(),
                         home.region().areaName()),
+                new PersonalCenterSnapshot.HealthCertification(
+                        health.status(),
+                        health.realNameMasked(),
+                        health.idCardMasked(),
+                        health.alipayOneTapEnabled()),
+                new PersonalCenterSnapshot.Membership(
+                        membership.membershipActive(),
+                        membership.membershipLevel(),
+                        membership.expiresAt(),
+                        membership.autoRenew(),
+                        membership.remainingDays()),
                 new PersonalCenterSnapshot.Capabilities(
                         true,
                         true,
                         true,
-                        false,
-                        false,
-                        false),
+                        true,
+                        true,
+                        true),
                 functionService.loadPrivacy(userId));
     }
 

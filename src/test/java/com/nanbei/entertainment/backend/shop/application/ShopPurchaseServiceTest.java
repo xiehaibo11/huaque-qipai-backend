@@ -5,12 +5,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.nanbei.entertainment.backend.common.error.ApiException;
 import com.nanbei.entertainment.backend.common.error.ErrorCode;
 import com.nanbei.entertainment.backend.gamehome.domain.PlayerWalletEntity;
 import com.nanbei.entertainment.backend.gamehome.infrastructure.PlayerWalletRepository;
+import com.nanbei.entertainment.backend.membership.application.GoldMembershipCardService;
+import com.nanbei.entertainment.backend.shop.domain.ShopInventoryItemEntity;
 import com.nanbei.entertainment.backend.shop.domain.ShopProductEntity;
 import com.nanbei.entertainment.backend.shop.infrastructure.ShopInventoryItemRepository;
 import com.nanbei.entertainment.backend.shop.infrastructure.ShopProductRepository;
@@ -21,6 +24,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -31,6 +35,7 @@ class ShopPurchaseServiceTest {
     @Mock ShopPurchaseRecordRepository purchaseRepository;
     @Mock ShopInventoryItemRepository inventoryRepository;
     @Mock PlayerWalletRepository walletRepository;
+    @Mock GoldMembershipCardService goldMembershipCardService;
 
     ShopPurchaseService service;
     UUID userId;
@@ -43,7 +48,8 @@ class ShopPurchaseServiceTest {
                         rewardRepository,
                         purchaseRepository,
                         inventoryRepository,
-                        walletRepository);
+                        walletRepository,
+                        goldMembershipCardService);
         userId = UUID.randomUUID();
     }
 
@@ -138,6 +144,43 @@ class ShopPurchaseServiceTest {
     }
 
     @Test
+    void chatVoicePurchaseDebitsDiamondsAndPersistsTheVoicePack() {
+        ShopProductEntity product =
+                ShopProductEntity.exchange(
+                        "CHAT_VOICE_XIAOGU_1_DAY",
+                        "interaction",
+                        "小谷专属语音包1天",
+                        "voice",
+                        "DIAMOND",
+                        100,
+                        "INTERACTION_PROP",
+                        1,
+                        809);
+        PlayerWalletEntity wallet = new PlayerWalletEntity(userId, 0, 0, 0, 500);
+        when(productRepository.findByProductCodeAndEnabledTrue("CHAT_VOICE_XIAOGU_1_DAY"))
+                .thenReturn(Optional.of(product));
+        when(walletRepository.findLockedByUserId(userId)).thenReturn(Optional.of(wallet));
+        when(purchaseRepository.findByUserIdAndIdempotencyKey(userId, "chat-voice"))
+                .thenReturn(Optional.empty());
+        when(inventoryRepository.findLocked(userId, "CHAT_VOICE_XIAOGU_1_DAY"))
+                .thenReturn(Optional.empty());
+        when(purchaseRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(walletRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        ShopPurchaseResponse result =
+                service.exchange(userId, "CHAT_VOICE_XIAOGU_1_DAY", "chat-voice");
+
+        assertThat(result.wallet().diamonds()).isEqualTo(400);
+        ArgumentCaptor<ShopInventoryItemEntity> inventory =
+                ArgumentCaptor.forClass(ShopInventoryItemEntity.class);
+        verify(inventoryRepository).save(inventory.capture());
+        assertThat(inventory.getValue().getItemCode())
+                .isEqualTo("CHAT_VOICE_XIAOGU_1_DAY");
+        assertThat(inventory.getValue().getQuantity()).isEqualTo(1);
+        verify(walletRepository).save(wallet);
+    }
+
+    @Test
     void cnyProductsMustUsePaymentOrders() {
         ShopProductEntity product =
                 ShopProductEntity.paid(
@@ -162,5 +205,74 @@ class ShopPurchaseServiceTest {
                 .extracting(exception -> ((ApiException) exception).code())
                 .isEqualTo(ErrorCode.SHOP_PAYMENT_REQUIRED);
         verify(purchaseRepository, never()).save(any());
+    }
+
+    @Test
+    void goldMembershipRewardActivatesEntitlementInsteadOfInventory() {
+        ShopProductEntity product =
+                ShopProductEntity.exchange(
+                        "GOLD_MEMBER_WEEK",
+                        "gold_membership",
+                        "会员周卡",
+                        "coin_gift",
+                        "DIAMOND",
+                        1800,
+                        "GOLD_MEMBERSHIP_DAY",
+                        7,
+                        601);
+        PlayerWalletEntity wallet =
+                new PlayerWalletEntity(userId, 0, 0, 0, 2_000);
+        when(productRepository.findByProductCodeAndEnabledTrue("GOLD_MEMBER_WEEK"))
+                .thenReturn(Optional.of(product));
+        when(walletRepository.findLockedByUserId(userId))
+                .thenReturn(Optional.of(wallet));
+        when(purchaseRepository.findByUserIdAndIdempotencyKey(userId, "gold-week"))
+                .thenReturn(Optional.empty());
+        when(purchaseRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(walletRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        ShopPurchaseResponse result =
+                service.exchange(userId, "GOLD_MEMBER_WEEK", "gold-week");
+
+        assertThat(result.wallet().diamonds()).isEqualTo(200);
+        verify(goldMembershipCardService)
+                .activate(userId, "GOLD_MEMBER_WEEK", 7);
+        verify(inventoryRepository, never()).save(any());
+    }
+
+    @Test
+    void legacyValueMonthDoesNotExtendWeekOrMonthCard() {
+        ShopProductEntity product =
+                ShopProductEntity.exchange(
+                        "GOLD_MEMBER_VALUE_MONTH",
+                        "gold_membership",
+                        "超值月卡",
+                        "treasure_pot",
+                        "DIAMOND",
+                        2800,
+                        "GOLD_MEMBERSHIP_DAY",
+                        30,
+                        603);
+        PlayerWalletEntity wallet =
+                new PlayerWalletEntity(userId, 0, 0, 0, 3_000);
+        when(productRepository.findByProductCodeAndEnabledTrue(
+                        "GOLD_MEMBER_VALUE_MONTH"))
+                .thenReturn(Optional.of(product));
+        when(walletRepository.findLockedByUserId(userId))
+                .thenReturn(Optional.of(wallet));
+        when(purchaseRepository.findByUserIdAndIdempotencyKey(
+                        userId, "legacy-value-month"))
+                .thenReturn(Optional.empty());
+        when(inventoryRepository.findLocked(
+                        userId, "GOLD_MEMBER_VALUE_MONTH"))
+                .thenReturn(Optional.empty());
+        when(purchaseRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(walletRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        service.exchange(
+                userId, "GOLD_MEMBER_VALUE_MONTH", "legacy-value-month");
+
+        verifyNoInteractions(goldMembershipCardService);
+        verify(inventoryRepository).save(any());
     }
 }

@@ -6,6 +6,8 @@ import com.nanbei.entertainment.backend.goldroom.application.GoldRoomConfView;
 import com.nanbei.entertainment.backend.goldroom.application.GoldRoomJoinRequest;
 import com.nanbei.entertainment.backend.goldroom.application.GoldRoomJoinResponse;
 import com.nanbei.entertainment.backend.goldroom.application.GoldRoomJoinService;
+import com.nanbei.entertainment.backend.goldroom.application.GoldRoomLeaveRequest;
+import com.nanbei.entertainment.backend.goldroom.application.GoldRoomLeaveResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import java.util.List;
@@ -56,5 +58,14 @@ public class GoldRoomController {
                 joinService.join(
                         UUID.fromString(jwt.getSubject()), gameId, request, idempotencyKey);
         return ResponseEntity.status(response.replay() ? 200 : 202).body(response);
+    }
+
+    /** 原版 PlayerLeaveRequest：取消匹配时满理解锁占位，重复 leave 幂等成功。 */
+    @PostMapping("/games/{gameId}/leave")
+    GoldRoomLeaveResponse leave(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable @Positive long gameId,
+            @Valid @RequestBody GoldRoomLeaveRequest request) {
+        return joinService.leave(UUID.fromString(jwt.getSubject()), gameId, request);
     }
 }

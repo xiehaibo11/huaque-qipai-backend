@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.nanbei.entertainment.backend.gameplay.application.GameplayCommandServiceTest
--------------------------------------------------------------------------------
-Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.255 s -- in com.nanbei.entertainment.backend.gameplay.application.GameplayCommandServiceTest

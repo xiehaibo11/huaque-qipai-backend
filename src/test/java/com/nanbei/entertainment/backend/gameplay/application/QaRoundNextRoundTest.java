@@ -15,7 +15,7 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * NEXT_ROUND（南北自建 QA 多局流转，非原版服务端算法）：
  * 局终后任何座位可开启下一局，新确定性 seed 派生墙，roundNumber+1，
- * LEFT_BANKER 递减、生牌数重置 22、比分由会话座位累积。
+ * LEFT_BANKER 递减、生牌状态重置、比分由会话座位累积。
  */
 class QaRoundNextRoundTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -44,21 +44,13 @@ class QaRoundNextRoundTest {
                         "WALL_SHUFFLED",
                         "MULTIPLE_CHOICE_STARTED",
                         "LEFT_BANKER",
-                        "DEALT",
-                        "SHENG_PAI_COUNT");
+                        "DEALT");
         List<GameEvent> leftBanker =
                 step.events().stream()
                         .filter(event -> event.type().equals("LEFT_BANKER"))
                         .toList();
         assertThat(leftBanker).hasSize(1);
         assertThat(leftBanker.get(0).payload()).containsEntry("leftBankerCount", 7);
-        List<GameEvent> shengPai =
-                step.events().stream()
-                        .filter(event -> event.type().equals("SHENG_PAI_COUNT"))
-                        .toList();
-        assertThat(shengPai).hasSize(1);
-        assertThat(shengPai.get(0).payload()).containsEntry("shengPaiCount", 22);
-
         JsonNode state = engine.sessionState(step.table(), QaRoundTestRigs.allBotContext());
         assertThat(state.path("roundNumber").asInt()).isEqualTo(2);
         assertThat(state.path("leftBankerCount").asInt()).isEqualTo(7);

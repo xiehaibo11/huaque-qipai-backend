@@ -70,4 +70,21 @@ public class UserIdentityEntity {
     public String getPhoneNumber() {
         return phoneNumber;
     }
+
+    public void linkTo(UserEntity user) {
+        if (user == null) {
+            throw new IllegalArgumentException("user must not be null");
+        }
+        this.user = user;
+    }
+
+    public void rebindPhone(String phoneNumber) {
+        if (provider != IdentityProvider.PHONE
+                || phoneNumber == null
+                || phoneNumber.isBlank()) {
+            throw new IllegalArgumentException("phone identity required");
+        }
+        providerSubject = phoneNumber;
+        this.phoneNumber = phoneNumber;
+    }
 }

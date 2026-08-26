@@ -12,6 +12,10 @@ public interface OtpChallengeRepository
             findFirstByPhoneNumberAndConsumedAtIsNullOrderByCreatedAtDesc(
                     String phoneNumber);
 
+    Optional<OtpChallengeEntity>
+            findFirstByPhoneNumberAndPurposeAndConsumedAtIsNullOrderByCreatedAtDesc(
+                    String phoneNumber, String purpose);
+
     long countByPhoneNumberAndCreatedAtAfter(
             String phoneNumber, Instant after);
 }

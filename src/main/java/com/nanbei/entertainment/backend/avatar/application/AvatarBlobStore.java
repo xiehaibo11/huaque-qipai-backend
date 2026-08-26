@@ -7,4 +7,6 @@ public interface AvatarBlobStore {
     StoredAvatar save(UUID userId, NormalizedAvatar avatar);
 
     Optional<StoredAvatar> findByKey(String avatarKey);
+
+    void deleteByUserId(UUID userId);
 }

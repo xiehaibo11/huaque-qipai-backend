@@ -28,4 +28,18 @@ class MailMigrationContractTest {
                 .contains("WHERE deleted_at IS NULL AND read_at IS NULL");
         assertThat(sql).doesNotContain("INSERT");
     }
+
+    @Test
+    void productionDeliveryMigrationDefinesSourceIdempotencyAndValidityChecks()
+            throws Exception {
+        String sql = Files.readString(
+                Path.of("src/main/resources/db/migration/V44__mail_delivery_integrity.sql"),
+                StandardCharsets.UTF_8);
+
+        assertThat(sql).contains("source_type VARCHAR(80)");
+        assertThat(sql).contains("source_id VARCHAR(160)");
+        assertThat(sql).contains("UNIQUE (user_id, source_type, source_id)");
+        assertThat(sql).contains("jsonb_typeof(attachments) = 'array'");
+        assertThat(sql).contains("expire_at IS NULL OR expire_at > send_at");
+    }
 }

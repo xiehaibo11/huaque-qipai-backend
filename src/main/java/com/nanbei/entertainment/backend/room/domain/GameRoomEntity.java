@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -63,6 +64,10 @@ public class GameRoomEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    private RoomVenue venue;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private RoomStatus status;
 
     @Column(name = "creation_idempotency_key")
@@ -101,6 +106,40 @@ public class GameRoomEntity {
             int roomFeeCenti,
             String creationIdempotencyKey,
             String creationRequestHash) {
+        this(
+                roomNumber,
+                ownerUserId,
+                lobbyId,
+                gameId,
+                gameRule,
+                gameRuleDisplay,
+                roomRule,
+                roomMode,
+                playerCount,
+                playCount,
+                payType,
+                roomFeeCenti,
+                creationIdempotencyKey,
+                creationRequestHash,
+                RoomVenue.BOX);
+    }
+
+    public GameRoomEntity(
+            String roomNumber,
+            UUID ownerUserId,
+            long lobbyId,
+            long gameId,
+            String gameRule,
+            String gameRuleDisplay,
+            String roomRule,
+            int roomMode,
+            int playerCount,
+            int playCount,
+            RoomPayType payType,
+            int roomFeeCenti,
+            String creationIdempotencyKey,
+            String creationRequestHash,
+            RoomVenue venue) {
         this.id = UUID.randomUUID();
         this.roomNumber = roomNumber;
         this.ownerUserId = ownerUserId;
@@ -114,6 +153,7 @@ public class GameRoomEntity {
         this.playCount = playCount;
         this.payType = payType;
         this.roomFeeCenti = roomFeeCenti;
+        this.venue = venue;
         this.status = RoomStatus.OPEN;
         this.creationIdempotencyKey = creationIdempotencyKey;
         this.creationRequestHash = creationRequestHash;
@@ -131,6 +171,16 @@ public class GameRoomEntity {
         if (status == RoomStatus.OPEN || status == RoomStatus.CHARGED) {
             status = RoomStatus.DISSOLVED;
             closedAt = occurredAt;
+        }
+    }
+
+    /**
+     * 金币场房主离场时把房主转给留下的继任者（对应原版服务端匹配队列的房主维护），
+     * 避免房主缺位导致快照校验「房间缺少房主座位」把剩余玩家卡死。
+     */
+    public void transferOwnership(UUID newOwnerUserId) {
+        if (status == RoomStatus.OPEN || status == RoomStatus.CHARGED) {
+            ownerUserId = Objects.requireNonNull(newOwnerUserId, "newOwnerUserId");
         }
     }
 
@@ -184,6 +234,10 @@ public class GameRoomEntity {
 
     public int getRoomFeeCenti() {
         return roomFeeCenti;
+    }
+
+    public RoomVenue getVenue() {
+        return venue;
     }
 
     public RoomStatus getStatus() {

@@ -9,6 +9,8 @@ import com.nanbei.entertainment.backend.mail.application.MailService;
 import com.nanbei.entertainment.backend.mail.application.MailSummaryResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -35,7 +38,13 @@ public class MailController {
     }
 
     @GetMapping
-    MailListResponse list(@AuthenticationPrincipal Jwt jwt) {
+    MailListResponse list(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "1") int page) {
+        return mailService.list(userId(jwt), page);
+    }
+
+    MailListResponse list(Jwt jwt) {
         return mailService.list(userId(jwt));
     }
 
@@ -65,5 +74,6 @@ public class MailController {
         return UUID.fromString(jwt.getSubject());
     }
 
-    public record MailIdsRequest(@NotNull List<Long> mailIds) {}
+    public record MailIdsRequest(
+            @NotNull @Size(min = 1, max = 50) List<@NotNull @Positive Long> mailIds) {}
 }

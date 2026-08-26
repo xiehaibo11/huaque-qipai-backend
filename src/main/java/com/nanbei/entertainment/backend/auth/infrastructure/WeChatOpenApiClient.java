@@ -3,12 +3,14 @@ package com.nanbei.entertainment.backend.auth.infrastructure;
 import com.nanbei.entertainment.backend.common.config.WeChatProperties;
 import com.nanbei.entertainment.backend.common.error.ApiException;
 import com.nanbei.entertainment.backend.common.error.ErrorCode;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -24,6 +26,7 @@ public class WeChatOpenApiClient implements WeChatCodeExchange {
     private static final String BASE_URL = "https://api.weixin.qq.com";
     private static final String ACCESS_TOKEN_PATH =
             "/sns/oauth2/access_token";
+    private static final String USER_INFO_PATH = "/sns/userinfo";
     private static final Duration DEFAULT_CONNECT_TIMEOUT =
             Duration.ofSeconds(3);
     private static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(5);
@@ -98,7 +101,9 @@ public class WeChatOpenApiClient implements WeChatCodeExchange {
                                         throw upstreamFailure();
                                     })
                             .body(String.class);
-            return validateResponse(parseResponse(responseBody));
+            WeChatTokenResponse tokenResponse =
+                    validateResponse(parseTokenResponse(responseBody));
+            return loadUserProfile(tokenResponse);
         } catch (ApiException exception) {
             throw exception;
         } catch (RestClientException exception) {
@@ -109,7 +114,7 @@ public class WeChatOpenApiClient implements WeChatCodeExchange {
         }
     }
 
-    private WeChatTokenResponse parseResponse(String responseBody) {
+    private WeChatTokenResponse parseTokenResponse(String responseBody) {
         if (responseBody == null || responseBody.isBlank()) {
             throw upstreamFailure();
         }
@@ -122,13 +127,123 @@ public class WeChatOpenApiClient implements WeChatCodeExchange {
                     textOrNull(root.get("openid")),
                     textOrNull(root.get("unionid")),
                     integerOrNull(root.get("errcode")),
-                    textOrNull(root.get("errmsg")));
+                    textOrNull(root.get("errmsg")),
+                    textOrNull(root.get("access_token")),
+                    null,
+                    null,
+                    null);
         } catch (ApiException exception) {
             throw exception;
         } catch (Exception exception) {
             LOGGER.warn("WeChat OAuth token exchange returned invalid JSON");
             throw upstreamFailure();
         }
+    }
+
+    private WeChatTokenResponse loadUserProfile(
+            WeChatTokenResponse tokenResponse) {
+        byte[] responseBody =
+                restClient
+                        .get()
+                        .uri(
+                                uriBuilder ->
+                                        uriBuilder
+                                                .path(USER_INFO_PATH)
+                                                .queryParam(
+                                                        "access_token",
+                                                        tokenResponse.accessToken())
+                                                .queryParam(
+                                                        "openid",
+                                                        tokenResponse.openid())
+                                                .queryParam("lang", "zh_CN")
+                                                .build())
+                        .accept(
+                                MediaType.APPLICATION_JSON,
+                                MediaType.TEXT_PLAIN)
+                        .retrieve()
+                        .onStatus(
+                                status -> status.isError(),
+                                (request, clientResponse) -> {
+                                    LOGGER.warn(
+                                            "WeChat user info HTTP failure, status={}",
+                                            clientResponse
+                                                    .getStatusCode()
+                                                    .value());
+                                    throw upstreamFailure();
+                                })
+                        .body(byte[].class);
+        WeChatProfile profile =
+                parseProfile(
+                        responseBody == null
+                                ? null
+                                : new String(
+                                        responseBody,
+                                        StandardCharsets.UTF_8));
+        AvatarDownload avatar = downloadAvatar(profile.avatarUrl());
+        return new WeChatTokenResponse(
+                tokenResponse.openid(),
+                firstNonBlank(tokenResponse.unionid(), profile.unionId()),
+                null,
+                null,
+                tokenResponse.accessToken(),
+                profile.nickname(),
+                avatar.bytes(),
+                avatar.contentType());
+    }
+
+    private WeChatProfile parseProfile(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            throw upstreamFailure();
+        }
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+            if (root == null || !root.isObject()) {
+                throw upstreamFailure();
+            }
+            Integer providerCode = integerOrNull(root.get("errcode"));
+            if (providerCode != null && providerCode != 0) {
+                LOGGER.warn(
+                        "WeChat user info rejected, errcode={}",
+                        providerCode);
+                throw upstreamFailure();
+            }
+            return new WeChatProfile(
+                    textOrNull(root.get("nickname")),
+                    textOrNull(root.get("headimgurl")),
+                    textOrNull(root.get("unionid")));
+        } catch (ApiException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            LOGGER.warn("WeChat user info returned invalid JSON");
+            throw upstreamFailure();
+        }
+    }
+
+    private AvatarDownload downloadAvatar(String avatarUrl) {
+        if (avatarUrl == null || avatarUrl.isBlank()) {
+            return new AvatarDownload(null, null);
+        }
+        ResponseEntity<byte[]> response =
+                restClient
+                        .get()
+                        .uri(avatarUrl)
+                        .accept(MediaType.IMAGE_JPEG, MediaType.IMAGE_PNG)
+                        .retrieve()
+                        .onStatus(
+                                status -> status.isError(),
+                                (request, clientResponse) -> {
+                                    LOGGER.warn(
+                                            "WeChat avatar download HTTP failure, status={}",
+                                            clientResponse
+                                                    .getStatusCode()
+                                                    .value());
+                                    throw upstreamFailure();
+                                })
+                        .toEntity(byte[].class);
+        MediaType contentType = response.getHeaders().getContentType();
+        return new AvatarDownload(
+                response.getBody(),
+                contentType == null ? null : contentType.toString());
     }
 
     private static String textOrNull(JsonNode node) {
@@ -159,7 +274,15 @@ public class WeChatOpenApiClient implements WeChatCodeExchange {
         if (response.openid() == null || response.openid().isBlank()) {
             throw upstreamFailure();
         }
+        if (response.accessToken() == null
+                || response.accessToken().isBlank()) {
+            throw upstreamFailure();
+        }
         return response;
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        return first != null && !first.isBlank() ? first : second;
     }
 
     private static RestClient buildClient(
@@ -198,4 +321,9 @@ public class WeChatOpenApiClient implements WeChatCodeExchange {
                 ErrorCode.AUTH_PROVIDER_UPSTREAM_FAILED,
                 UPSTREAM_ERROR_MESSAGE);
     }
+
+    private record WeChatProfile(
+            String nickname, String avatarUrl, String unionId) {}
+
+    private record AvatarDownload(byte[] bytes, String contentType) {}
 }

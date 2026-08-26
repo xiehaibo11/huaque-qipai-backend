@@ -89,6 +89,14 @@ public class PlayerWalletEntity {
         coins = Math.addExact(coins, amount);
     }
 
+    public void applyCoinDelta(long delta) {
+        long next = Math.addExact(coins, delta);
+        if (next < 0) {
+            throw new IllegalArgumentException("insufficient coins");
+        }
+        coins = next;
+    }
+
     public long getCoins() {
         return coins;
     }

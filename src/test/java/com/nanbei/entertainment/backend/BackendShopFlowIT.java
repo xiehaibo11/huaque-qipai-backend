@@ -35,13 +35,15 @@ class BackendShopFlowIT extends BackendFlowTestSupport {
                 userId);
 
         JsonNode catalog = json(get("/api/v1/shop/catalog", accessToken).body());
-        assertThat(catalog.path("products").size()).isEqualTo(70);
+        assertThat(catalog.path("products").size()).isEqualTo(90);
         assertThat(catalog.path("products").get(0).path("productCode").asText())
                 .isEqualTo("SXVIP_CONTINUOUS_MONTH");
         assertThat(catalog.path("products").toString())
                 .contains(
                         "\"productCode\":\"SXVIP_7_DAYS\"",
                         "\"productCode\":\"PROP_RECORDER_2_HOURS\"",
+                        "\"productCode\":\"GOLD_GIFT_6\"",
+                        "\"section\":\"gold_gift\"",
                         "\"priceCurrency\":\"ROOM_CARD\"");
         assertThat(catalog.path("wallet").path("roomCards").asLong()).isEqualTo(9);
         assertThat(catalog.path("wallet").path("diamonds").asLong()).isEqualTo(1000);
@@ -220,6 +222,205 @@ class BackendShopFlowIT extends BackendFlowTestSupport {
                                 Long.class,
                                 userId))
                 .isEqualTo(1L);
+
+        JsonNode goldGift =
+                json(
+                        post(
+                                        "/api/v1/payments/orders",
+                                        "{\"productCode\":\"GOLD_GIFT_6\",\"provider\":\"MOCK\"}",
+                                        accessToken,
+                                        "Idempotency-Key",
+                                        "shop-gold-gift-" + UUID.randomUUID())
+                                .body());
+        long coinsBeforeGoldGift = walletValue(userId, "coins");
+        pay(goldGift);
+        assertThat(walletValue(userId, "coins")).isEqualTo(coinsBeforeGoldGift + 78_000);
+
+        HttpResponse<String> dailyBenefit =
+                post(
+                        "/api/v1/shop/exchanges",
+                        "{\"productCode\":\"HOT_DAILY_BENEFIT\"}",
+                        accessToken,
+                        "Idempotency-Key",
+                        "shop-daily-benefit-" + UUID.randomUUID());
+        assertThat(dailyBenefit.statusCode()).isEqualTo(200);
+        JsonNode refreshedCatalog = json(get("/api/v1/shop/catalog", accessToken).body());
+        JsonNode refreshedDailyBenefit =
+                findProduct(refreshedCatalog, "HOT_DAILY_BENEFIT");
+        assertThat(refreshedDailyBenefit.path("purchasedToday").asLong()).isEqualTo(1);
+        assertThat(refreshedDailyBenefit.path("remainingPurchases").asInt()).isZero();
+    }
+
+    @Test
+    void exchangesWashCardsAndLuckBeadsIntoSharedInventoryStacks() throws Exception {
+        String phoneNumber = "13800138202";
+        String accessToken = login(phoneNumber);
+        UUID userId = userIdByPhone(phoneNumber);
+        jdbcTemplate.update(
+                """
+                insert into player_wallets (
+                    user_id, room_card_centi, bound_room_cards, coins, diamonds,
+                    coupons, updated_at, version
+                ) values (?, 0, 0, 0, 1000, 0, now(), 0)
+                on conflict (user_id) do update
+                    set diamonds = 1000, updated_at = now()
+                """,
+                userId);
+
+        JsonNode catalog = json(get("/api/v1/shop/catalog", accessToken).body());
+        assertThat(findProduct(catalog, "PROP_WASH_CARD_5").path("section").asText())
+                .isEqualTo("wash_card");
+        assertThat(findProduct(catalog, "PROP_LUCK_BEAD_10").path("section").asText())
+                .isEqualTo("luck_prop");
+
+        JsonNode washCards =
+                json(
+                        post(
+                                        "/api/v1/shop/exchanges",
+                                        "{\"productCode\":\"PROP_WASH_CARD_5\"}",
+                                        accessToken,
+                                        "Idempotency-Key",
+                                        "shop-wash-card-" + UUID.randomUUID())
+                                .body());
+        assertThat(washCards.path("wallet").path("diamonds").asLong()).isEqualTo(910);
+
+        JsonNode luckBeads =
+                json(
+                        post(
+                                        "/api/v1/shop/exchanges",
+                                        "{\"productCode\":\"PROP_LUCK_BEAD_10\"}",
+                                        accessToken,
+                                        "Idempotency-Key",
+                                        "shop-luck-bead-" + UUID.randomUUID())
+                                .body());
+        assertThat(luckBeads.path("wallet").path("diamonds").asLong()).isEqualTo(750);
+
+        JsonNode inventory = json(get("/api/v1/shop/inventory", accessToken).body());
+        assertThat(inventory.toString())
+                .contains(
+                        "\"itemCode\":\"PROP_WASH_CARD\",\"quantity\":5",
+                        "\"itemCode\":\"PROP_LUCK_BEAD\",\"quantity\":10");
+    }
+
+    @Test
+    void classifiesAndExchangesEveryDecorationSection() throws Exception {
+        String phoneNumber = "13800138203";
+        String accessToken = login(phoneNumber);
+        UUID userId = userIdByPhone(phoneNumber);
+        jdbcTemplate.update(
+                """
+                insert into player_wallets (
+                    user_id, room_card_centi, bound_room_cards, coins, diamonds,
+                    coupons, updated_at, version
+                ) values (?, 0, 0, 0, 20000, 0, now(), 0)
+                on conflict (user_id) do update
+                    set diamonds = 20000, updated_at = now()
+                """,
+                userId);
+
+        JsonNode catalog = json(get("/api/v1/shop/catalog", accessToken).body());
+        assertThat(findProduct(catalog, "DECORATION_VEHICLE_150801").path("section").asText())
+                .isEqualTo("enterani");
+        assertThat(findProduct(catalog, "DECORATION_VEHICLE_150816").path("displayName").asText())
+                .isEqualTo("越野家7天");
+        assertThat(findProduct(catalog, "DECORATION_TABLE_1").path("section").asText())
+                .isEqualTo("tablebg");
+        assertThat(findProduct(catalog, "DECORATION_TABLE_3").path("section").asText())
+                .isEqualTo("pb");
+        assertThat(findProduct(catalog, "DECORATION_TABLE_6").path("section").asText())
+                .isEqualTo("txk");
+        assertThat(findProduct(catalog, "DECORATION_TABLE_9").path("section").asText())
+                .isEqualTo("ypq");
+        assertThat(findProduct(catalog, "DECORATION_TABLE_1").path("displayName").asText())
+                .isEqualTo("财神桌布7天");
+        assertThat(
+                        jdbcTemplate.queryForObject(
+                                """
+                                select count(*)
+                                from shop_products shop
+                                left join payment_products payment
+                                  on payment.id = shop.payment_product_id
+                                where shop.enabled
+                                  and (
+                                    shop.price_currency not in (
+                                      'CNY', 'DIAMOND', 'ROOM_CARD', 'COUPON', 'FREE'
+                                    )
+                                    or (shop.price_currency = 'CNY' and (
+                                      payment.id is null
+                                      or not payment.enabled
+                                      or payment.currency <> shop.price_currency
+                                      or payment.amount_minor <> shop.price_amount
+                                    ))
+                                    or (shop.price_currency <> 'CNY'
+                                      and shop.payment_product_id is not null)
+                                  )
+                                """,
+                                Long.class))
+                .isZero();
+        assertThat(
+                        jdbcTemplate.queryForObject(
+                                """
+                                select count(*)
+                                from shop_products shop
+                                where shop.enabled
+                                  and not exists (
+                                    select 1 from shop_product_rewards reward
+                                    where reward.product_id = shop.id
+                                  )
+                                """,
+                                Long.class))
+                .isZero();
+
+        String[] vehicleCodes = {
+            "DECORATION_VEHICLE_150801",
+            "DECORATION_VEHICLE_150802",
+            "DECORATION_VEHICLE_150804",
+            "DECORATION_VEHICLE_150803",
+            "DECORATION_VEHICLE_150808",
+            "DECORATION_VEHICLE_150807",
+            "DECORATION_VEHICLE_150806",
+            "DECORATION_VEHICLE_150805",
+            "DECORATION_VEHICLE_150816"
+        };
+        for (String vehicleCode : vehicleCodes) {
+            exchange(accessToken, vehicleCode);
+        }
+        exchange(accessToken, "DECORATION_TABLE_1");
+        exchange(accessToken, "DECORATION_TABLE_3");
+        exchange(accessToken, "DECORATION_TABLE_6");
+        JsonNode lastExchange = exchange(accessToken, "DECORATION_TABLE_9");
+        assertThat(lastExchange.path("wallet").path("diamonds").asLong()).isEqualTo(2900);
+
+        JsonNode inventory = json(get("/api/v1/shop/inventory", accessToken).body());
+        assertThat(inventory.toString())
+                .contains(
+                        "\"itemCode\":\"DECORATION_TABLE_1\",\"quantity\":7",
+                        "\"itemCode\":\"DECORATION_TABLE_3\",\"quantity\":7",
+                        "\"itemCode\":\"DECORATION_TABLE_6\",\"quantity\":7",
+                        "\"itemCode\":\"DECORATION_TABLE_9\",\"quantity\":7",
+                        "\"itemCode\":\"PROP_RQDH_150801\",\"quantity\":7",
+                        "\"itemCode\":\"PROP_RQDH_150816\",\"quantity\":7");
+    }
+
+    private JsonNode exchange(String accessToken, String productCode) throws Exception {
+        HttpResponse<String> response =
+                post(
+                        "/api/v1/shop/exchanges",
+                        "{\"productCode\":\"" + productCode + "\"}",
+                        accessToken,
+                        "Idempotency-Key",
+                        "shop-decoration-" + productCode + "-" + UUID.randomUUID());
+        assertThat(response.statusCode()).isEqualTo(200);
+        return json(response.body());
+    }
+
+    private static JsonNode findProduct(JsonNode catalog, String productCode) {
+        for (JsonNode product : catalog.path("products")) {
+            if (productCode.equals(product.path("productCode").asText())) {
+                return product;
+            }
+        }
+        throw new AssertionError("missing shop product " + productCode);
     }
 
     private String login(String phoneNumber) throws Exception {

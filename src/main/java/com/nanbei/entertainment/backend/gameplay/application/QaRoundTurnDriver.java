@@ -7,16 +7,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-
-/**
- * QA 轮转驱动（南北自建规则，非原版服务端算法）：
- * 摸牌、假人摸打、弃牌窗口、裁决与胡/流局收尾都在这里。
- */
+/** QA 摸打、响应裁决与局终驱动。 */
 final class QaRoundTurnDriver {
     private final QaRoundEventFactory eventFactory;
     private final QaTaizhouBotPolicy botPolicy;
     private final QaTingInfoCalculator tingInfoCalculator;
-
+    private final QaRobKongFlow robKongFlow;
+    private final QaDiscardClaimFlow discardClaimFlow;
     QaRoundTurnDriver(
             QaRoundEventFactory eventFactory,
             QaTaizhouBotPolicy botPolicy,
@@ -24,9 +21,9 @@ final class QaRoundTurnDriver {
         this.eventFactory = Objects.requireNonNull(eventFactory, "eventFactory");
         this.botPolicy = Objects.requireNonNull(botPolicy, "botPolicy");
         this.tingInfoCalculator = Objects.requireNonNull(tingInfoCalculator, "tingInfoCalculator");
+        this.robKongFlow = new QaRobKongFlow(eventFactory, botPolicy);
+        this.discardClaimFlow = new QaDiscardClaimFlow(eventFactory, botPolicy);
     }
-
-    /** activeSeat 摸一张，随后假人自动摸打、真人收到出牌 offer。 */
     void beginTurn(
             QaRoundTable table, QaRoundContext context, long revision, List<GameEvent> events) {
         table.turnIndex++;
@@ -48,7 +45,7 @@ final class QaRoundTurnDriver {
                     declareDraw(table, context, revision, events);
                     return;
                 }
-                int replacement = drawCounted(table);
+                int replacement = drawCounted(table, revision, events);
                 events.add(eventFactory.flowerReplaced(revision, seat, flower, replacement));
                 if (QaTaizhouTiles.isWallFlower(replacement)) {
                     flower = replacement;
@@ -71,7 +68,6 @@ final class QaRoundTurnDriver {
         return null;
     }
 
-    /** 杠后补摸（自建：从墙头补），随后同上。 */
     void replacementDrawAndOffer(
             QaRoundTable table, QaRoundContext context, long revision, List<GameEvent> events) {
         drawAndOffer(table, context, revision, events, table.activeSeat);
@@ -88,17 +84,17 @@ final class QaRoundTurnDriver {
             declareDraw(table, context, revision, events);
             return;
         }
+        table.clearPassedClaims(seat);
         table.hands().get(seat).add(drawnTile);
         table.markDrawnTile(seat, drawnTile);
         events.addAll(eventFactory.drawn(revision, context, table, seat));
+        if (table.isBot(seat)) {
+            events.add(eventFactory.turnAdvanced(revision, table));
+        }
         table.stage = QaRoundTable.Stage.AWAIT_PLAY;
         offerOrBotPlay(table, context, revision, events, drawnTile);
     }
 
-    /**
-     * AWAIT_PLAY 的落点：假人在服务端同步决策、客户端按 playbackDelayMillis 展示；
-     * 真人收到带 actionToken 的出牌 offer（自建：含自摸胡与暗杠/补杠位）。
-     */
     void offerOrBotPlay(
             QaRoundTable table,
             QaRoundContext context,
@@ -108,25 +104,23 @@ final class QaRoundTurnDriver {
         int seat = table.activeSeat;
         List<Integer> hand = table.hands().get(seat);
         if (table.isBot(seat)) {
-            if (botPolicy.wantsSelfDrawWin(hand, table.jokerRule)) {
-                declareWin(
-                        table,
-                        context,
-                        revision,
-                        events,
-                        seat,
-                        "ZIMO",
-                        null,
-                        contextTile == null ? QaTaizhouTiles.NO_TILE : contextTile);
-                return;
+            QaTaizhouBotPolicy.Decision decision = botPolicy.decideTurn(table, seat);
+            switch (decision.action()) {
+                case HU ->
+                        declareWin(
+                                table,
+                                context,
+                                revision,
+                                events,
+                                seat,
+                                "ZIMO",
+                                null,
+                                contextTile == null ? QaTaizhouTiles.NO_TILE : contextTile);
+                case KONG -> applyBotOwnKong(table, context, revision, events, seat, decision);
+                case DISCARD ->
+                        discard(table, context, revision, events, seat, decision.tile());
+                default -> throw new IllegalStateException("invalid AI turn action");
             }
-            discard(
-                    table,
-                    context,
-                    revision,
-                    events,
-                    seat,
-                    botPolicy.discardChoice(hand, table.jokerRule));
             return;
         }
         int mask = QaPowerMask.PLAY;
@@ -155,6 +149,40 @@ final class QaRoundTurnDriver {
         appendTingInfo(table, revision, events, seat);
     }
 
+    private void applyBotOwnKong(
+            QaRoundTable table,
+            QaRoundContext context,
+            long revision,
+            List<GameEvent> events,
+            int seat,
+            QaTaizhouBotPolicy.Decision decision) {
+        int tile = decision.tile();
+        if ("FILL".equals(decision.kongType())) {
+            QaRoundTable.Meld pong =
+                    table.melds().get(seat).stream()
+                            .filter(
+                                    meld ->
+                                            "PONG".equals(meld.combType())
+                                                    && meld.tiles().get(0) == tile)
+                            .findFirst()
+                            .orElseThrow(
+                                    () -> new IllegalStateException("AI fill kong has no pong"));
+            requestFillKong(table, context, revision, events, seat, tile, pong);
+            return;
+        }
+        List<Integer> hand = table.hands().get(seat);
+        for (int count = 0; count < 4; count++) {
+            if (!hand.remove(Integer.valueOf(tile))) {
+                throw new IllegalStateException("AI concealed kong tile is missing");
+            }
+        }
+        QaRoundTable.Meld meld =
+                new QaRoundTable.Meld(
+                        "CONCEALED_KONG", List.of(tile, tile, tile, tile), seat);
+        table.melds().get(seat).add(meld);
+        applyOwnKong(table, context, revision, events, seat, meld);
+    }
+
     /**
      * TING_INFO（自建，对齐 msgTingMahInfo 语义）：出牌权窗口开启时为真人座位计算
      * "打出每张手牌后听哪些牌"的映射并下发；无听或计算降级时发空数组。
@@ -163,12 +191,11 @@ final class QaRoundTurnDriver {
             QaRoundTable table, long revision, List<GameEvent> events, int seat) {
         List<QaRoundTable.TingEntry> entries =
                 tingInfoCalculator.compute(
-                        table.hands().get(seat), table.jokerRule, 50_000_000L);
+                        table.hands().get(seat), table.jokerRule, QaTingInfoCalculator.BUDGET_NANOS);
         table.tingInfos().put(seat, entries);
         events.add(eventFactory.tingInfo(revision, seat, entries));
     }
 
-    /** 出牌（大众玩法允许打出财神；花牌不会进入手牌），随后打开弃牌窗口。 */
     void discard(
             QaRoundTable table,
             QaRoundContext context,
@@ -177,9 +204,11 @@ final class QaRoundTurnDriver {
         int seat,
         int tile) {
         List<Integer> hand = table.hands().get(seat);
+        table.lastDiscardSnapshot = QaTaizhouBaoPai.beforeDiscard(table, seat, tile, hand);
         if (!hand.remove(Integer.valueOf(tile))) {
             throw new IllegalStateException("discard tile is not in hand");
         }
+        table.discardedTileTypes.add(tile);
         table.clearDrawnTile();
         List<Integer> river = table.rivers().get(seat);
         river.add(tile);
@@ -187,85 +216,27 @@ final class QaRoundTurnDriver {
         table.lastDiscard = new QaRoundTable.LastDiscard(seat, tile, river.size() - 1);
         events.addAll(eventFactory.discarded(revision, context, table, seat));
         table.stage = QaRoundTable.Stage.AWAIT_CLAIMS;
-        openClaimWindow(table, context, revision, events, seat, tile);
+        discardClaimFlow.open(table, context, revision, events, seat, tile);
     }
 
-    /**
-     * 弃牌窗口（自建）：假人即时决策，能胡立即截胡（不再发真人 offer）；
-     * 真人按候选拿到 ACTION_OFFERED（吃仅限出牌者下家）。
-     */
-    private void openClaimWindow(
+    void requestFillKong(
             QaRoundTable table,
             QaRoundContext context,
             long revision,
             List<GameEvent> events,
-            int discarder,
-            int tile) {
-        int botWinner = -1;
-        for (int seat = 1; seat <= table.chairCount; seat++) {
-            if (seat != discarder
-                    && table.isBot(seat)
-                    && botPolicy.wantsClaimWin(
-                            table.hands().get(seat), tile, table.jokerRule)) {
-                if (botWinner < 0
-                        || Math.floorMod(seat - discarder, table.chairCount)
-                                < Math.floorMod(botWinner - discarder, table.chairCount)) {
-                    botWinner = seat;
-                }
-            }
-        }
-        if (botWinner > 0) {
-            declareWin(table, context, revision, events, botWinner, "DIANPAO", discarder, tile);
-            return;
-        }
-        int chowSeat = table.nextSeat(discarder);
-        for (int seat = 1; seat <= table.chairCount; seat++) {
-            if (seat == discarder || table.isBot(seat)) {
-                continue;
-            }
-            List<Integer> hand = table.hands().get(seat);
-            int mask = QaPowerMask.NONE;
-            if (QaWinDetector.canWin(append(hand, tile), table.jokerRule)) {
-                mask |= QaPowerMask.HU;
-            }
-            List<QaMeldCandidates.KongOption> kongOptions = List.of();
-            if (QaMeldCandidates.canExposedKong(hand, tile, table.jokerRule)) {
-                mask |= QaPowerMask.MKONG;
-                kongOptions = List.of(new QaMeldCandidates.KongOption("EXPOSED", tile));
-            } else if (QaMeldCandidates.canPung(hand, tile, table.jokerRule)) {
-                mask |= QaPowerMask.PUNG;
-            }
-            List<List<Integer>> chowCandidates = List.of();
-            if (seat == chowSeat) {
-                chowCandidates =
-                        QaMeldCandidates.chowCandidates(hand, tile, table.jokerRule);
-                if (!chowCandidates.isEmpty()) {
-                    mask |= QaPowerMask.CHOW;
-                }
-            }
-            if (mask == QaPowerMask.NONE) {
-                continue;
-            }
-            mask |= QaPowerMask.CANCEL;
-            QaRoundTable.PendingOffer offer =
-                    new QaRoundTable.PendingOffer(
-                            table.nextOfferId++,
-                            UUID.randomUUID().toString(),
-                            mask,
-                            tile,
-                            chowCandidates,
-                            kongOptions,
-                            discarder,
-                            false);
-            offer.offeredAtEpochMilli = context.occurredAt().toEpochMilli();
-            table.offers().put(seat, offer);
-            events.add(eventFactory.actionOffered(revision, seat, offer));
-        }
+            int kongSeat,
+            int tile,
+            QaRoundTable.Meld pong) {
+        robKongFlow.open(table, context, revision, events, kongSeat, tile, pong);
     }
 
     /** 真人全部作答后裁决（自建优先级 胡>杠>碰>吃），无人声明则轮转下家。 */
     void adjudicate(
             QaRoundTable table, QaRoundContext context, long revision, List<GameEvent> events) {
+        if (table.pendingKong != null) {
+            robKongFlow.adjudicate(this, table, context, revision, events);
+            return;
+        }
         int discarder = table.lastDiscard.seat();
         QaClaim winner = QaAdjudicator.choose(table.pendingClaims(), discarder, table.chairCount);
         for (Map.Entry<Integer, QaRoundTable.PendingOffer> entry : table.offers().entrySet()) {
@@ -283,7 +254,9 @@ final class QaRoundTurnDriver {
         table.offers().clear();
         if (winner == null) {
             table.activeSeat = table.nextSeat(discarder);
-            events.add(eventFactory.turnAdvanced(revision, table));
+            if (!table.isBot(table.activeSeat)) {
+                events.add(eventFactory.turnAdvanced(revision, table));
+            }
             table.stage = QaRoundTable.Stage.AWAIT_DRAW;
             return;
         }
@@ -345,9 +318,13 @@ final class QaRoundTurnDriver {
             default -> throw new IllegalStateException("unexpected claim " + winner.kind());
         }
         removeLastRiverTile(table, discarder);
+        table.clearPassedClaims(winner.seat());
         table.melds().get(winner.seat()).add(meld);
         table.activeSeat = winner.seat();
         events.add(eventFactory.meldApplied(revision, winner.seat(), meld));
+        if (table.isBot(winner.seat()) && winner.kind() != QaClaim.Kind.KONG) {
+            events.add(eventFactory.turnAdvanced(revision, table));
+        }
         if (winner.kind() == QaClaim.Kind.KONG) {
             table.stage = QaRoundTable.Stage.AWAIT_DRAW;
             replacementDrawAndOffer(table, context, revision, events);
@@ -357,7 +334,6 @@ final class QaRoundTurnDriver {
         offerOrBotPlay(table, context, revision, events, tile);
     }
 
-    /** 真人暗杠/补杠：MELD_APPLIED 后补摸一张并重新开出牌 offer。 */
     void applyOwnKong(
             QaRoundTable table,
             QaRoundContext context,
@@ -365,23 +341,21 @@ final class QaRoundTurnDriver {
             List<GameEvent> events,
             int seat,
             QaRoundTable.Meld meld) {
+        table.clearPassedClaims(seat);
         events.add(eventFactory.meldApplied(revision, seat, meld));
         replacementDrawAndOffer(table, context, revision, events);
     }
 
-    /** PASS 或裁决后关闭 offer（南北自建 QA 事件）。 */
     void expireOffer(
             QaRoundTable table, long revision, List<GameEvent> events, int seat, int offerId) {
         events.add(eventFactory.actionExpired(revision, seat, offerId));
     }
 
-    /** 加配选择变更广播（沿用 MULTIPLE_CHOICE_STARTED 的 payload 形状）。 */
     void multipleChoiceChanged(
             QaRoundTable table, QaRoundContext context, long revision, List<GameEvent> events) {
         events.add(eventFactory.multipleChoiceChanged(revision, context, table));
     }
 
-    /** 被吃碰杠的弃牌从河移除（南北自建 QA 规则）。 */
     private void removeLastRiverTile(QaRoundTable table, int discarder) {
         List<Integer> river = table.rivers().get(discarder);
         river.remove(river.size() - 1);
@@ -397,16 +371,34 @@ final class QaRoundTurnDriver {
             String winType,
             Integer discarderSeat,
             int winningTile) {
+        table.baoPaiSeat = null;
         QaTaizhouScorer.RoundScore score =
                 QaTaizhouScorer.score(
                         table, winnerSeat, winType, discarderSeat, winningTile);
+        table.baoPaiSeat =
+                QaTaizhouBaoPai.contractor(
+                        table,
+                        winnerSeat,
+                        winType,
+                        discarderSeat,
+                        winningTile,
+                        score.seatScores().get(winnerSeat));
+        if (table.baoPaiSeat != null) {
+            score =
+                    QaTaizhouScorer.score(
+                            table, winnerSeat, winType, discarderSeat, winningTile);
+        }
         Map<Integer, String> endStates = new LinkedHashMap<>();
         for (int seat = 1; seat <= table.chairCount; seat++) {
             boolean winner = seat == winnerSeat;
             if (winner) {
                 endStates.put(seat, "EPS_HU");
+            } else if (table.baoPaiSeat != null && seat == table.baoPaiSeat) {
+                endStates.put(seat, "EPS_CHENGBAO");
             } else if (discarderSeat != null && seat == discarderSeat) {
-                endStates.put(seat, "EPS_DISCARD");
+                endStates.put(
+                        seat,
+                        "QIANGGANG".equals(winType) ? "EPS_ROBKONG" : "EPS_DISCARD");
             } else {
                 endStates.put(seat, "EPS_NULL");
             }
@@ -459,24 +451,27 @@ final class QaRoundTurnDriver {
         if (table.wallExhausted()) {
             return -2; // 调用方按流局处理
         }
-        int tile = drawCounted(table);
+        int tile = drawCounted(table, revision, events);
         while (QaTaizhouTiles.isWallFlower(tile)) {
             table.flowers().get(seat).add(tile);
             if (table.wallExhausted()) {
                 return -2;
             }
-            int replacement = drawCounted(table);
+            int replacement = drawCounted(table, revision, events);
             events.add(eventFactory.flowerReplaced(revision, seat, tile, replacement));
             tile = replacement;
         }
         return tile;
     }
 
-    /** 摸牌计数（自建）：每从墙摸走一张生牌数 -1，归零不再变化；发牌不经过此路径。 */
-    private static int drawCounted(QaRoundTable table) {
+    private int drawCounted(
+            QaRoundTable table, long revision, List<GameEvent> events) {
         int tile = table.drawFromWall();
-        if (table.shengPaiCount > 0) {
-            table.shengPaiCount--;
+        int remaining = table.wall.size();
+        if (remaining <= 31 && remaining >= QaRoundTable.DRAW_RESERVE_TILES) {
+            boolean first = table.shengPaiCount < 0;
+            table.shengPaiCount = remaining;
+            events.add(eventFactory.shengPaiCount(revision, remaining, first));
         }
         return tile;
     }
@@ -491,9 +486,4 @@ final class QaRoundTurnDriver {
         return pongMelds;
     }
 
-    private static List<Integer> append(List<Integer> hand, int tile) {
-        List<Integer> all = new ArrayList<>(hand);
-        all.add(tile);
-        return all;
-    }
 }

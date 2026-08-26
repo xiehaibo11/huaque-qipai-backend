@@ -7,6 +7,8 @@ import com.nanbei.entertainment.backend.gamehome.domain.PlayerWalletEntity;
 import com.nanbei.entertainment.backend.gamehome.infrastructure.PlayerWalletRepository;
 import com.nanbei.entertainment.backend.gameplay.application.QaGoldRoomAutoMatchResult;
 import com.nanbei.entertainment.backend.gameplay.application.QaGoldRoomAutoMatchService;
+import com.nanbei.entertainment.backend.gameplay.application.GoldRoomMatchResult;
+import com.nanbei.entertainment.backend.gameplay.application.GoldRoomMatchService;
 import com.nanbei.entertainment.backend.goldroom.domain.GoldGameEntity;
 import com.nanbei.entertainment.backend.goldroom.domain.GoldGameId;
 import com.nanbei.entertainment.backend.goldroom.domain.GoldGameLevelEntity;
@@ -22,7 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
-/** Joins a gold-room level up to the original dispatch-queue boundary. */
+/** Validates an original gold-room level and enters its real-player match queue. */
 @Service
 public class GoldRoomJoinService {
     static final String LOW_LIMIT_MESSAGE = "金币不足！补充金币，再战四方！";
@@ -35,6 +37,7 @@ public class GoldRoomJoinService {
     private final CryptoService cryptoService;
     private final ObjectMapper objectMapper;
     private final QaGoldRoomAutoMatchService qaAutoMatchService;
+    private final GoldRoomMatchService matchService;
     private final Clock clock;
 
     @Autowired
@@ -45,7 +48,8 @@ public class GoldRoomJoinService {
             PlayerWalletRepository walletRepository,
             CryptoService cryptoService,
             ObjectMapper objectMapper,
-            QaGoldRoomAutoMatchService qaAutoMatchService) {
+            QaGoldRoomAutoMatchService qaAutoMatchService,
+            GoldRoomMatchService matchService) {
         this(
                 gameRepository,
                 levelRepository,
@@ -54,6 +58,7 @@ public class GoldRoomJoinService {
                 cryptoService,
                 objectMapper,
                 qaAutoMatchService,
+                matchService,
                 Clock.systemUTC());
     }
 
@@ -65,6 +70,7 @@ public class GoldRoomJoinService {
             CryptoService cryptoService,
             ObjectMapper objectMapper,
             QaGoldRoomAutoMatchService qaAutoMatchService,
+            GoldRoomMatchService matchService,
             Clock clock) {
         this.gameRepository = gameRepository;
         this.levelRepository = levelRepository;
@@ -73,6 +79,7 @@ public class GoldRoomJoinService {
         this.cryptoService = cryptoService;
         this.objectMapper = objectMapper;
         this.qaAutoMatchService = qaAutoMatchService;
+        this.matchService = matchService;
         this.clock = clock;
     }
 
@@ -107,7 +114,7 @@ public class GoldRoomJoinService {
                                 () -> new ApiException(ErrorCode.GOLD_LOW_LIMIT, LOW_LIMIT_MESSAGE));
         validateRichLimit(wallet.getCoins(), level);
 
-        GoldRoomJoinResponse response = response(game, level, userId, safeKey);
+        GoldRoomJoinResponse response = response(game, level, userId, wallet.getCoins(), safeKey);
         operationRepository.save(
                 new GoldRoomJoinOperationEntity(
                         userId,
@@ -119,6 +126,19 @@ public class GoldRoomJoinService {
                         json(response),
                         clock.instant()));
         return response;
+    }
+
+    /**
+     * Cancels a pending match (original PlayerLeaveRequest). Idempotent: leaving with no live
+     * gold room still succeeds so the client can fire-and-forget on back.
+     */
+    @Transactional
+    public GoldRoomLeaveResponse leave(
+            UUID userId, long gameId, GoldRoomLeaveRequest request) {
+        GoldGameEntity game = requireGame(request.lobbyId(), gameId);
+        long boxGameId = game.getBoxGameId() == null ? 0L : game.getBoxGameId();
+        matchService.leave(userId, request.lobbyId(), boxGameId, request.roomNameFlag());
+        return GoldRoomLeaveResponse.left();
     }
 
     private GoldGameEntity requireGame(long lobbyId, long gameId) {
@@ -140,19 +160,43 @@ public class GoldRoomJoinService {
     }
 
     private GoldRoomJoinResponse response(
-            GoldGameEntity game, GoldGameLevelEntity level, UUID userId, String idempotencyKey) {
+            GoldGameEntity game,
+            GoldGameLevelEntity level,
+            UUID userId,
+            long initialCoins,
+            String idempotencyKey) {
         long boxGameId = game.getBoxGameId() == null ? 0L : game.getBoxGameId();
         int flag = level.getId().getRoomNameFlag();
         QaGoldRoomAutoMatchResult qaMatch =
                 qaAutoMatchService == null
                         ? new QaGoldRoomAutoMatchResult(null, false)
                         : qaAutoMatchService.matchAndAutoPlay(
-                                userId, game.getId().getLobbyId(), boxGameId, idempotencyKey);
-        boolean autoGameplay = qaMatch.autoGameplay();
+                                userId,
+                                game.getId().getLobbyId(),
+                                boxGameId,
+                                flag,
+                                level.getBaseScore(),
+                                level.getMinRich(),
+                                initialCoins,
+                                idempotencyKey);
+        GoldRoomMatchResult match =
+                qaMatch.autoGameplay()
+                        ? new GoldRoomMatchResult(qaMatch.roomNumber(), true)
+                        : matchService.match(
+                                userId,
+                                game.getId().getLobbyId(),
+                                boxGameId,
+                                flag,
+                                level.getChairCount(),
+                                level.getBaseScore(),
+                                initialCoins,
+                                idempotencyKey);
+        boolean ready = match.ready();
+        boolean qa = qaMatch.autoGameplay();
         return new GoldRoomJoinResponse(
-                autoGameplay ? "GOLD_QA_AUTO_ROUND_READY" : "GOLD_QUEUING",
-                autoGameplay ? "READY" : "MATCHING",
-                autoGameplay ? "QA_AUTO_MATCH" : "DISPATCH_QUEUE",
+                qa ? "GOLD_QA_AUTO_ROUND_READY" : ready ? "GOLD_ROUND_READY" : "GOLD_MATCHING",
+                ready ? "READY" : "MATCHING",
+                qa ? "QA_AUTO_MATCH" : "SERVER_AUTHORITY",
                 game.getId().getLobbyId(),
                 game.getId().getGameId(),
                 boxGameId,
@@ -164,9 +208,11 @@ public class GoldRoomJoinService {
                 level.getMinRich(),
                 level.getMaxRich(),
                 "gold-match-" + UUID.randomUUID(),
-                autoGameplay ? "牌友已加入，自动牌局已开始" : "正在匹配玩家...",
-                qaMatch.roomNumber(),
-                autoGameplay,
+                qa
+                        ? "牌友已加入，自动牌局已开始"
+                        : ready ? "牌友已加入，牌局已开始" : "正在匹配玩家...",
+                match.roomNumber(),
+                ready,
                 false);
     }
 

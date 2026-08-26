@@ -116,7 +116,18 @@ class GameplayControllerWebMvcTest {
         when(commandService.submit(USER_ID, "123456", "ready-1", request))
                 .thenReturn(
                         new GameplayCommandResponse(
-                                1L, "SEAT_READY_CHANGED", 1, true, false));
+                                1L,
+                                "SEAT_READY_CHANGED",
+                                1,
+                                true,
+                                false,
+                                List.of(
+                                        new GameplayEventView(
+                                                UUID.randomUUID(),
+                                                1L,
+                                                1,
+                                                "SEAT_READY_CHANGED",
+                                                objectMapper.createObjectNode()))));
         String body = objectMapper.writeValueAsString(request);
 
         mockMvc.perform(
@@ -134,7 +145,9 @@ class GameplayControllerWebMvcTest {
                                 .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.revision").value(1))
-                .andExpect(jsonPath("$.ready").value(true));
+                .andExpect(jsonPath("$.ready").value(true))
+                .andExpect(jsonPath("$.events[0].eventOrder").value(1))
+                .andExpect(jsonPath("$.events[0].type").value("SEAT_READY_CHANGED"));
         verify(commandService).submit(USER_ID, "123456", "ready-1", request);
     }
 

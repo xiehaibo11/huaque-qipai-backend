@@ -18,6 +18,11 @@ final class QaWinDetector {
 
     /** 判断 conceal 手牌（含财神万能牌）能否组成 N 副 + 1 将。 */
     static boolean canWin(List<Integer> concealedTiles) {
+        return canWin(concealedTiles, QaTaizhouJokerRule.synthetic());
+    }
+
+    static boolean canWin(
+            List<Integer> concealedTiles, QaTaizhouJokerRule jokerRule) {
         if (concealedTiles == null || concealedTiles.isEmpty()
                 || concealedTiles.size() % 3 != 2) {
             return false;
@@ -25,12 +30,14 @@ final class QaWinDetector {
         int jokers = 0;
         Map<Integer, Integer> counts = new TreeMap<>();
         for (int tile : concealedTiles) {
-            if (tile == QaTaizhouTiles.JOKER) {
+            if (jokerRule.isJoker(tile)) {
                 jokers++;
-            } else if (QaTaizhouTiles.isPlayable(tile)) {
-                counts.merge(tile, 1, Integer::sum);
             } else {
-                return false;
+                int ordinaryTile = jokerRule.normalizedOrdinaryTile(tile);
+                if (!QaTaizhouTiles.isPlayable(ordinaryTile)) {
+                    return false;
+                }
+                counts.merge(ordinaryTile, 1, Integer::sum);
             }
         }
         // 先选将（对子），余牌必须全部成副，避免多对子被误判为胡。
@@ -83,21 +90,36 @@ final class QaWinDetector {
     private static boolean trySequence(
             Map<Integer, Integer> counts, int jokers, Map<String, Boolean> memo) {
         int first = counts.keySet().iterator().next();
-        if (!QaTaizhouTiles.isSuited(first) || QaTaizhouTiles.rankOf(first) > 7) {
+        if (!QaTaizhouTiles.isSuited(first)) {
             return false;
         }
-        int second = first + 1;
-        int third = first + 2;
-        int secondCount = counts.getOrDefault(second, 0);
-        int thirdCount = counts.getOrDefault(third, 0);
-        int need = (secondCount > 0 ? 0 : 1) + (thirdCount > 0 ? 0 : 1);
-        if (jokers < need) {
-            return false;
+        int rank = QaTaizhouTiles.rankOf(first);
+        for (int startRank = Math.max(1, rank - 2); startRank <= Math.min(7, rank); startRank++) {
+            int start = (QaTaizhouTiles.suitOf(first) << 4) + startRank;
+            for (int jokerMask = 0; jokerMask < 8; jokerMask++) {
+                Map<Integer, Integer> next = new TreeMap<>(counts);
+                int usedJokers = 0;
+                boolean valid = true;
+                for (int offset = 0; offset < 3; offset++) {
+                    int tile = start + offset;
+                    boolean useJoker = tile != first && (jokerMask & (1 << offset)) != 0;
+                    if (useJoker) {
+                        usedJokers++;
+                    } else if (next.getOrDefault(tile, 0) > 0) {
+                        next = without(next, tile, 1);
+                    } else {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (valid
+                        && usedJokers <= jokers
+                        && allMelds(next, jokers - usedJokers, memo)) {
+                    return true;
+                }
+            }
         }
-        Map<Integer, Integer> next = without(counts, first, 1);
-        next = without(next, second, Math.min(1, secondCount));
-        next = without(next, third, Math.min(1, thirdCount));
-        return allMelds(next, jokers - need, memo);
+        return false;
     }
 
     private static Map<Integer, Integer> without(Map<Integer, Integer> counts, int tile, int amount) {

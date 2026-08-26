@@ -33,21 +33,38 @@ final class QaTaizhouRoundEngine {
     private final QaRoundTurnDriver turnDriver;
     private final QaRoundCommandApplier commandApplier;
     private final QaRoundFlowAdvance flowAdvance;
+    private final TaizhouRoundMode mode;
 
     QaTaizhouRoundEngine(ObjectMapper objectMapper) {
         this(objectMapper, TaizhouRoundMode.QA);
     }
 
     QaTaizhouRoundEngine(ObjectMapper objectMapper, TaizhouRoundMode mode) {
+        this(objectMapper, mode, botPolicy(mode));
+    }
+
+    QaTaizhouRoundEngine(
+            ObjectMapper objectMapper,
+            TaizhouRoundMode mode,
+            QaTaizhouBotPolicy botPolicy) {
         Objects.requireNonNull(objectMapper, "objectMapper");
-        Objects.requireNonNull(mode, "mode");
+        this.mode = Objects.requireNonNull(mode, "mode");
         QaTaizhouProjection projection = new QaTaizhouProjection(objectMapper);
         this.codec = new QaRoundStateCodec(objectMapper, projection, mode);
         this.eventFactory = new QaRoundEventFactory(projection, mode);
         this.turnDriver =
-                new QaRoundTurnDriver(eventFactory, new QaTaizhouBotPolicy(), new QaTingInfoCalculator());
+                new QaRoundTurnDriver(
+                        eventFactory,
+                        Objects.requireNonNull(botPolicy, "botPolicy"),
+                        new QaTingInfoCalculator());
         this.commandApplier = new QaRoundCommandApplier();
         this.flowAdvance = new QaRoundFlowAdvance(eventFactory, turnDriver);
+    }
+
+    private static QaTaizhouBotPolicy botPolicy(TaizhouRoundMode mode) {
+        return mode.qaMode()
+                ? new QaTaizhouBotPolicy(new QaDeepSeekMahjongDecisionClient()::choose)
+                : new QaTaizhouBotPolicy();
     }
 
     /** 从会话 state JSON 读回牌桌状态（要求 qaRound 节点存在）。 */
@@ -76,21 +93,39 @@ final class QaTaizhouRoundEngine {
                 botSeats.add(seat.seatNumber());
             }
         }
-        List<Integer> wall =
-                wallOverride != null
-                        ? new ArrayList<>(wallOverride)
-                        : QaTaizhouTiles.buildWall(
+        TaizhouWallShuffle.Result shuffle =
+                wallOverride == null
+                        ? buildShuffle(
                                 QaTaizhouTiles.seed(
                                         request.roomNumber(),
                                         request.expectedRevision(),
                                         request.currentRoundNumber(),
                                         request.seats().stream()
                                                 .map(QaMahjongAutoRoundEngine.SeatInput::userId)
-                                                .toList()));
+                                                .toList()))
+                        : null;
+        List<Integer> wall =
+                shuffle == null ? new ArrayList<>(wallOverride) : shuffle.wall();
         List<GameEvent> events = new ArrayList<>();
+        int dealerSeat =
+                context.goldMode()
+                        ? Math.floorMod(wall.hashCode(), context.chairCount()) + 1
+                        : DEALER_SEAT;
         QaRoundTable table =
                 flowAdvance.openRound(
-                        context, roundNumber, DEALER_SEAT, botSeats, wall, nextRevision, events);
+                        context,
+                        roundNumber,
+                        request.maxPlayCount(),
+                        dealerSeat,
+                        botSeats,
+                        QaTaizhouTotalResult.empty(context.chairCount()),
+                        wall,
+                        wallOverride == null,
+                        shuffle == null ? "TEST_WALL_OVERRIDE" : shuffle.algorithm(),
+                        shuffle == null ? "TEST_WALL_OVERRIDE" : shuffle.seedSource(),
+                        shuffle == null ? null : shuffle.commitment(),
+                        nextRevision,
+                        events);
         advance(table, context, nextRevision, events);
         JsonNode state = codec.sessionState(table, context);
         return new QaTaizhouRoundResult(
@@ -162,6 +197,16 @@ final class QaTaizhouRoundEngine {
         return table.outcome == null ? Map.of() : table.outcome.deltas();
     }
 
+    List<Integer> buildWall(long qaSeed) {
+        return buildShuffle(qaSeed).wall();
+    }
+
+    TaizhouWallShuffle.Result buildShuffle(long qaSeed) {
+        return mode == TaizhouRoundMode.SERVER_AUTHORITY
+                ? TaizhouWallShuffle.secure()
+                : TaizhouWallShuffle.deterministic(qaSeed);
+    }
+
     record Request(
             long gameId,
             String roomNumber,
@@ -171,9 +216,33 @@ final class QaTaizhouRoundEngine {
             long expectedRevision,
             int currentRoundNumber,
             List<QaMahjongAutoRoundEngine.SeatInput> seats,
-            Instant occurredAt) {
+            Instant occurredAt,
+            boolean goldMode) {
         Request {
             seats = List.copyOf(seats);
+        }
+
+        Request(
+                long gameId,
+                String roomNumber,
+                int chairCount,
+                int maxPlayCount,
+                String gameRuleDisplay,
+                long expectedRevision,
+                int currentRoundNumber,
+                List<QaMahjongAutoRoundEngine.SeatInput> seats,
+                Instant occurredAt) {
+            this(
+                    gameId,
+                    roomNumber,
+                    chairCount,
+                    maxPlayCount,
+                    gameRuleDisplay,
+                    expectedRevision,
+                    currentRoundNumber,
+                    seats,
+                    occurredAt,
+                    false);
         }
 
         void validate() {
@@ -202,7 +271,8 @@ final class QaTaizhouRoundEngine {
         }
 
         QaRoundContext context() {
-            return new QaRoundContext(roomNumber, gameRuleDisplay, seats, occurredAt);
+            return new QaRoundContext(
+                    roomNumber, gameRuleDisplay, seats, occurredAt, goldMode);
         }
     }
 }

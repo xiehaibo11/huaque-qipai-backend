@@ -79,8 +79,7 @@ abstract class RoomFlowTestSupport extends BackendFlowTestSupport {
     }
 
     /**
-     * QA 完整轮转驱动：按事件流里最新的未关闭 ACTION_OFFERED 依次作答
-     * （胡 > 杠 > 碰 > 吃 > 过；出牌权限打手牌最大牌），直到 ROUND_RESULT。
+     * QA 完整轮转驱动：按当前快照里的 playPermission/actionOffer 依次作答，直到 ROUND_RESULT。
      * 只用于 QA 会话（state 带 qaDisclosure），引擎规则为南北自建。
      */
     protected void driveQaTaizhouRoundToCompletion(String accessToken, String roomNumber)
@@ -105,15 +104,10 @@ abstract class RoomFlowTestSupport extends BackendFlowTestSupport {
                 assertThat(choice.statusCode()).isEqualTo(200);
                 continue;
             }
-            JsonNode events =
-                    json(get("/api/v1/game-sessions/" + roomNumber + "/events?afterRevision=0",
-                                    accessToken)
-                            .body());
-            JsonNode offer = latestOpenOffer(events);
-            assertThat(offer)
-                    .as("QA round %s stopped without an actionable offer for the human", roomNumber)
-                    .isNotNull();
-            String body = qaRoundCommandBody(offer, snapshot, revision);
+            String body = qaRoundCommandBody(snapshot, revision);
+            assertThat(body)
+                    .as("QA round %s stopped without an actionable snapshot command", roomNumber)
+                    .isNotBlank();
             HttpResponse<String> command =
                     post(
                             "/api/v1/game-sessions/" + roomNumber + "/commands",
@@ -126,23 +120,25 @@ abstract class RoomFlowTestSupport extends BackendFlowTestSupport {
         throw new AssertionError("QA round did not reach ROUND_RESULT within 400 commands");
     }
 
-    private static JsonNode latestOpenOffer(JsonNode events) {
-        JsonNode candidate = null;
-        for (JsonNode event : events) {
-            String type = event.path("type").asText();
-            if ("ACTION_OFFERED".equals(type)) {
-                candidate = event.path("payload");
-            } else if ("ACTION_EXPIRED".equals(type)
-                    && candidate != null
-                    && event.path("payload").path("offerId").asInt()
-                            == candidate.path("offerId").asInt()) {
-                candidate = null;
-            }
+    private static String qaRoundCommandBody(JsonNode snapshot, long revision) {
+        JsonNode offer = snapshot.path("actionOffer");
+        if (!offer.path("actionToken").asText().isBlank()) {
+            return qaRoundActionOfferCommandBody(offer, snapshot, revision);
         }
-        return candidate;
+        JsonNode playPermission = snapshot.path("playPermission");
+        String token = playPermission.path("actionToken").asText();
+        if (token.isBlank()) {
+            return "";
+        }
+        return commandJson(
+                "DISCARD",
+                revision,
+                "{\"tileValue\":" + maxConcealedTile(snapshot)
+                        + ",\"actionToken\":\"" + token + "\"}");
     }
 
-    private static String qaRoundCommandBody(JsonNode offer, JsonNode snapshot, long revision) {
+    private static String qaRoundActionOfferCommandBody(
+            JsonNode offer, JsonNode snapshot, long revision) {
         int mask = offer.path("powerMask").asInt();
         String token = offer.path("actionToken").asText();
         if ((mask & 0x010) != 0) {
@@ -189,6 +185,20 @@ abstract class RoomFlowTestSupport extends BackendFlowTestSupport {
                             + ",\"candidateIndex\":0,\"actionToken\":\"" + token + "\"}");
         }
         return commandJson("PASS", revision, "{\"actionToken\":\"" + token + "\"}");
+    }
+
+    private static int maxConcealedTile(JsonNode snapshot) {
+        int mySeat = snapshot.path("mySeat").asInt();
+        int tile = -1;
+        for (JsonNode hand : snapshot.path("visibleRound").path("hands")) {
+            if (hand.path("seatNumber").asInt() == mySeat) {
+                for (JsonNode concealed : hand.path("concealedTiles")) {
+                    tile = Math.max(tile, concealed.asInt());
+                }
+            }
+        }
+        assertThat(tile).isPositive();
+        return tile;
     }
 
     private static String commandJson(String type, long expectedRevision, String payload) {

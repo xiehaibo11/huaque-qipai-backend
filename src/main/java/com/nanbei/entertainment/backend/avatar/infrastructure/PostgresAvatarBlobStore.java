@@ -39,6 +39,11 @@ public class PostgresAvatarBlobStore implements AvatarBlobStore {
         return repository.findById(avatarKey).map(PostgresAvatarBlobStore::toStored);
     }
 
+    @Override
+    public void deleteByUserId(UUID userId) {
+        repository.deleteByUserId(userId);
+    }
+
     private static StoredAvatar toStored(PlayerAvatarEntity entity) {
         return new StoredAvatar(
                 entity.getAvatarKey(),

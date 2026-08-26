@@ -50,6 +50,7 @@ class PersonalCenterFunctionServiceTest {
         assertThat(result.showOnlineStatus()).isTrue();
         assertThat(result.chatNotifications()).isTrue();
         assertThat(result.personalizedRecommendations()).isFalse();
+        assertThat(result.clipboardAccessEnabled()).isTrue();
     }
 
     @Test
@@ -61,7 +62,7 @@ class PersonalCenterFunctionServiceTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
         PersonalCenterPrivacySettings requested =
                 new PersonalCenterPrivacySettings(
-                        false, true, false, true, true);
+                        false, true, false, true, true, false);
 
         PersonalCenterPrivacySettings result =
                 service.updatePrivacy(userId, requested);

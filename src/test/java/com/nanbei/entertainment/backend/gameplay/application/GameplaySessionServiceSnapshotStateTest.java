@@ -190,6 +190,70 @@ class GameplaySessionServiceSnapshotStateTest {
     }
 
     @Test
+    void snapshotDerivesCountdownFromThePersistedOfferTimestamp() {
+        stubSeatProfiles();
+        GameRoomEntity room = room();
+        GameSessionEntity session = new GameSessionEntity(room.getId(), 30109L, NOW);
+        session.advance(
+                GamePhase.PLAYING,
+                1,
+                1L,
+                """
+                {
+                  "clockRemainingSeconds": 20,
+                  "qaRound": {
+                    "offers": {
+                      "2": {"offeredAtEpochMilli": %d, "passed": false}
+                    }
+                  }
+                }
+                """.formatted(NOW.minusSeconds(7).toEpochMilli()),
+                NOW);
+        when(roomRepository.findLockedByRoomNumber("123456")).thenReturn(Optional.of(room));
+        when(sessionRepository.findByRoomId(room.getId())).thenReturn(Optional.of(session));
+        when(participantRepository.findByIdRoomIdOrderByIdUserId(room.getId()))
+                .thenReturn(List.of(participant(room, OWNER_ID), participant(room, GUEST_ID)));
+        when(seatRepository.findByIdSessionIdOrderByIdSeatNumber(session.getId()))
+                .thenReturn(
+                        List.of(
+                                new GameSessionSeatEntity(session.getId(), 1, OWNER_ID, NOW),
+                                new GameSessionSeatEntity(session.getId(), 2, GUEST_ID, NOW)));
+
+        GameplaySnapshot snapshot = service.get(GUEST_ID, "123456");
+
+        assertThat(snapshot.clockRemainingSeconds()).isEqualTo(13);
+    }
+
+    @Test
+    void multipleChoiceUsesTheViewingPlayersRealSeat() {
+        stubSeatProfiles();
+        GameRoomEntity room = room();
+        GameSessionEntity session = new GameSessionEntity(room.getId(), 30109L, NOW);
+        session.advance(
+                GamePhase.DEALING,
+                1,
+                1L,
+                """
+                {"multipleChoice":{"choiceActive":true,"mySeat":1,"seatChoices":[]}}
+                """,
+                NOW);
+        when(roomRepository.findLockedByRoomNumber("123456")).thenReturn(Optional.of(room));
+        when(sessionRepository.findByRoomId(room.getId())).thenReturn(Optional.of(session));
+        when(participantRepository.findByIdRoomIdOrderByIdUserId(room.getId()))
+                .thenReturn(List.of(participant(room, OWNER_ID), participant(room, GUEST_ID)));
+        when(seatRepository.findByIdSessionIdOrderByIdSeatNumber(session.getId()))
+                .thenReturn(
+                        List.of(
+                                new GameSessionSeatEntity(session.getId(), 1, OWNER_ID, NOW),
+                                new GameSessionSeatEntity(session.getId(), 2, GUEST_ID, NOW)));
+
+        GameplaySnapshot snapshot = service.get(GUEST_ID, "123456");
+
+        assertThat(snapshot.mySeat()).isEqualTo(2);
+        assertThat(snapshot.multipleChoice().path("mySeat").asInt()).isEqualTo(2);
+    }
+
+    @Test
     void snapshotLeavesAbsentWaveThreeFieldsAsNull() {
         stubSeatProfiles();
         GameRoomEntity room = room();

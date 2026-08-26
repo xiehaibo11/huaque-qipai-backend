@@ -42,7 +42,8 @@ public class PersonalCenterFunctionService {
                 requested.showGameRecord(),
                 requested.showOnlineStatus(),
                 requested.chatNotifications(),
-                requested.personalizedRecommendations());
+                requested.personalizedRecommendations(),
+                requested.clipboardAccessEnabled());
         return toSettings(privacyRepository.save(entity));
     }
 
@@ -83,7 +84,8 @@ public class PersonalCenterFunctionService {
                 entity.isShowGameRecord(),
                 entity.isShowOnlineStatus(),
                 entity.isChatNotifications(),
-                entity.isPersonalizedRecommendations());
+                entity.isPersonalizedRecommendations(),
+                entity.isClipboardAccessEnabled());
     }
 
     private static PersonalCenterFeedbackItem toItem(

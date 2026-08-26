@@ -15,6 +15,7 @@ import com.nanbei.entertainment.backend.room.application.TaizhouMahjongRuleDispl
 import com.nanbei.entertainment.backend.room.domain.GameRoomEntity;
 import com.nanbei.entertainment.backend.room.domain.RoomParticipantEntity;
 import com.nanbei.entertainment.backend.room.domain.RoomStatus;
+import com.nanbei.entertainment.backend.room.domain.RoomVenue;
 import com.nanbei.entertainment.backend.room.infrastructure.GameRoomRepository;
 import com.nanbei.entertainment.backend.room.infrastructure.RoomParticipantRepository;
 import com.nanbei.entertainment.backend.user.domain.UserEntity;
@@ -38,7 +39,7 @@ public class QaGoldRoomAutoMatchService {
     private static final int QA_GOLD_ROOM_MODE = 50;
     private static final int QA_PLAY_COUNT = 8;
     private static final String QA_CREATION_REQUEST_HASH = "qa-gold-match";
-    private static final String QA_GAME_RULE =
+    private static final String QA_GAME_RULE_PREFIX =
             "winLostType='1';"
                     + "playerCount_4;"
                     + "maxQuanShu='2';"
@@ -109,13 +110,20 @@ public class QaGoldRoomAutoMatchService {
     }
 
     public QaGoldRoomAutoMatchResult matchAndAutoPlay(
-            UUID userId, long lobbyId, long boxGameId, String idempotencyKey) {
+            UUID userId,
+            long lobbyId,
+            long boxGameId,
+            int roomNameFlag,
+            long baseScore,
+            long minRich,
+            long initialCoins,
+            String idempotencyKey) {
         if (!enabled() || boxGameId != TAIZHOU_BOX_GAME_ID) {
             return new QaGoldRoomAutoMatchResult(null, false);
         }
         roomRepository.acquireCreationLock("gold-qa-match:" + userId);
         Instant now = clock.instant();
-        GameRoomEntity existingRoom = existingQaRoom(userId);
+        GameRoomEntity existingRoom = existingQaRoom(userId, roomNameFlag);
         if (existingRoom != null) {
             GameSessionEntity existingSession =
                     sessionRepository.findByRoomId(existingRoom.getId()).orElse(null);
@@ -127,15 +135,24 @@ public class QaGoldRoomAutoMatchService {
         }
         List<UserEntity> botUsers = qaBotService.ensureBotPool(now);
         UUID testOwnerUserId = selectTestOwner(botUsers);
-        GameRoomEntity room = createRoom(userId, testOwnerUserId, lobbyId, idempotencyKey);
+        GameRoomEntity room =
+                createRoom(
+                        userId,
+                        testOwnerUserId,
+                        lobbyId,
+                        roomNameFlag,
+                        baseScore,
+                        minRich,
+                        idempotencyKey);
         GameSessionEntity session = sessionRepository.save(new GameSessionEntity(room.getId(), boxGameId, now));
-        GameSessionSeatEntity ownerSeat = new GameSessionSeatEntity(session.getId(), 1, userId, now);
+        GameSessionSeatEntity ownerSeat =
+                new GameSessionSeatEntity(session.getId(), 1, userId, initialCoins, now);
         ownerSeat.setConnected(true, now);
         ownerSeat.setReady(true, now);
         seatRepository.save(ownerSeat);
         List<GameSessionSeatEntity> seats =
                 qaBotService.ensureTenBotsAndFillSeats(
-                        room, session, List.of(ownerSeat), now, testOwnerUserId);
+                        room, session, List.of(ownerSeat), now, testOwnerUserId, minRich);
         QaTaizhouRoundResult result =
                 new QaTaizhouRoundEngine(objectMapper)
                         .start(
@@ -148,7 +165,8 @@ public class QaGoldRoomAutoMatchService {
                                         session.getRevision(),
                                         session.getRoundNumber(),
                                         qaBotService.seatInputs(room, seats),
-                                        now));
+                                        now,
+                                        true));
         for (GameSessionSeatEntity seat : seats) {
             Long delta = result.scoreDeltasBySeat().get(seat.getId().getSeatNumber());
             if (delta != null && delta != 0L) {
@@ -162,25 +180,38 @@ public class QaGoldRoomAutoMatchService {
     }
 
     private GameRoomEntity createRoom(
-            UUID userId, UUID testOwnerUserId, long lobbyId, String idempotencyKey) {
+            UUID userId,
+            UUID testOwnerUserId,
+            long lobbyId,
+            int roomNameFlag,
+            long baseScore,
+            long minRich,
+            String idempotencyKey) {
+        String gameRule =
+                QA_GAME_RULE_PREFIX
+                        + "basescore='" + baseScore + "';"
+                        + "QaBotMinCoins='" + minRich + "';";
         String display =
-                TaizhouMahjongRuleDisplay.render(QA_GAME_RULE, 4, QA_PLAY_COUNT, RoomPayType.ALL);
+                TaizhouMahjongRuleDisplay.render(gameRule, 4, QA_PLAY_COUNT, RoomPayType.ALL);
         GameRoomEntity room =
                 new GameRoomEntity(
                         allocateRoomNumber(),
                         testOwnerUserId,
                         lobbyId,
                         TAIZHOU_BOX_GAME_ID,
-                        QA_GAME_RULE,
+                        gameRule,
                         display,
-                        "roomrule={GamePlayerCount=\"4\",group=\"30109\",cancreate=\"1\",roommode=\"50\"}",
+                        "roomrule={GamePlayerCount=\"4\",group=\"30109\",roomnameflag=\""
+                                + roomNameFlag
+                                + "\",cancreate=\"1\",roommode=\"50\"}",
                         QA_GOLD_ROOM_MODE,
                         4,
                         QA_PLAY_COUNT,
                         RoomPayType.ALL,
                         0,
                         "gold-qa-match-" + idempotencyKey,
-                        QA_CREATION_REQUEST_HASH);
+                        qaCreationRequestHash(roomNameFlag),
+                        RoomVenue.GOLD);
         roomRepository.saveAndFlush(room);
         participantRepository.save(new RoomParticipantEntity(room.getId(), testOwnerUserId));
         participantRepository.save(new RoomParticipantEntity(room.getId(), userId));
@@ -204,16 +235,20 @@ public class QaGoldRoomAutoMatchService {
                                         "当前测试号房主池已满，请稍后再试"));
     }
 
-    private GameRoomEntity existingQaRoom(UUID userId) {
+    private GameRoomEntity existingQaRoom(UUID userId, int roomNameFlag) {
         return roomRepository.findLiveRoomsForParticipantAndQaMatch(
                         userId,
                         TAIZHOU_BOX_GAME_ID,
                         QA_GOLD_ROOM_MODE,
-                        QA_CREATION_REQUEST_HASH,
+                        qaCreationRequestHash(roomNameFlag),
                         RoomStatus.DISSOLVED)
                 .stream()
                 .findFirst()
                 .orElse(null);
+    }
+
+    private static String qaCreationRequestHash(int roomNameFlag) {
+        return QA_CREATION_REQUEST_HASH + ":" + roomNameFlag;
     }
 
     private boolean hasQaRoundState(GameSessionEntity session) {

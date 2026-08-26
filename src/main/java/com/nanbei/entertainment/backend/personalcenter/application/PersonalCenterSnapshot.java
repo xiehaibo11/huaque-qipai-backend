@@ -1,5 +1,6 @@
 package com.nanbei.entertainment.backend.personalcenter.application;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -8,6 +9,8 @@ public record PersonalCenterSnapshot(
         Wallet wallet,
         Account account,
         Region region,
+        HealthCertification healthCertification,
+        Membership membership,
         Capabilities capabilities,
         PersonalCenterPrivacySettings privacy) {
     public record Player(
@@ -34,6 +37,19 @@ public record PersonalCenterSnapshot(
     }
 
     public record Region(long lobbyId, String areaName) {}
+
+    public record HealthCertification(
+            String status,
+            String realNameMasked,
+            String idCardMasked,
+            boolean alipayOneTapEnabled) {}
+
+    public record Membership(
+            boolean active,
+            int level,
+            Instant expiresAt,
+            boolean autoRenew,
+            long remainingDays) {}
 
     public record Capabilities(
             boolean avatarRefresh,

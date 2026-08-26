@@ -31,6 +31,9 @@ public class PrivacySettingsEntity {
     @Column(name = "personalized_recommendations", nullable = false)
     private boolean personalizedRecommendations;
 
+    @Column(name = "clipboard_access_enabled", nullable = false)
+    private boolean clipboardAccessEnabled;
+
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
@@ -43,6 +46,7 @@ public class PrivacySettingsEntity {
         showOnlineStatus = true;
         chatNotifications = true;
         personalizedRecommendations = false;
+        clipboardAccessEnabled = true;
     }
 
     public void update(
@@ -50,13 +54,15 @@ public class PrivacySettingsEntity {
             boolean showGameRecord,
             boolean showOnlineStatus,
             boolean chatNotifications,
-            boolean personalizedRecommendations) {
+            boolean personalizedRecommendations,
+            boolean clipboardAccessEnabled) {
         this.allowFriendRequests = allowFriendRequests;
         this.showGameRecord = showGameRecord;
         this.showOnlineStatus = showOnlineStatus;
         this.chatNotifications = chatNotifications;
         this.personalizedRecommendations =
                 personalizedRecommendations;
+        this.clipboardAccessEnabled = clipboardAccessEnabled;
     }
 
     @PrePersist
@@ -87,5 +93,9 @@ public class PrivacySettingsEntity {
 
     public boolean isPersonalizedRecommendations() {
         return personalizedRecommendations;
+    }
+
+    public boolean isClipboardAccessEnabled() {
+        return clipboardAccessEnabled;
     }
 }

@@ -149,6 +149,7 @@ class MailServiceTest {
         MailDeletedCountResponse result = service.delete(userId, List.of(1L, 2L, 3L));
 
         assertThat(result.deletedCount()).isEqualTo(2);
+        assertThat(result.deletedMailIds()).containsExactly(1L, 3L);
         assertThat(plain.getDeletedAt()).isNotNull();
         assertThat(withAward.getDeletedAt()).isNull();
         assertThat(claimedAward.getDeletedAt()).isNotNull();
@@ -176,6 +177,8 @@ class MailServiceTest {
         assertThat(result.wallet().diamonds()).isEqualTo(5);
         assertThat(result.wallet().roomCards()).isEqualTo(2);
         assertThat(first.getClaimedAt()).isNotNull();
+        assertThat(first.getReadAt()).isNotNull();
+        assertThat(second.getReadAt()).isNotNull();
         verify(walletRepository).save(wallet);
     }
 

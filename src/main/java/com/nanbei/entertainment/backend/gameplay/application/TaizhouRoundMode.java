@@ -6,7 +6,7 @@ enum TaizhouRoundMode {
     QA(
             true,
             "QA",
-            "NANBEI_QA_DETERMINISTIC_V3",
+            TaizhouWallShuffle.ALGORITHM,
             "QA_TAIZHOU_V2",
             "南北自建 QA 规则，非原版服务端算法：牌墙（136 无花牌固定 seed）、轮转、"
                     + "裁决优先级（胡>杠>碰>吃）、胡判定（基本型+财神）与台州大众玩法"
@@ -14,7 +14,7 @@ enum TaizhouRoundMode {
     SERVER_AUTHORITY(
             false,
             "SERVER_AUTHORITY",
-            "NANBEI_SERVER_TAIZHOU_V1",
+            TaizhouWallShuffle.ALGORITHM,
             "SERVER_TAIZHOU_V1",
             "南北娱乐自研服务端权威规则：参考已逆向确认的浙江游戏大厅客户端协议、"
                     + "Lua、CSB、资源、实机和协议证据实现；不是恢复出的原版服务端源码。");

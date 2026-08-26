@@ -32,7 +32,7 @@ class AliyunSmsGatewayTest {
                 gateway.send(
                         new SmsGateway.SendCommand(
                                 "13800138000",
-                                "广东万一塑胶材料有限公司",
+                                "南北娱乐",
                                 "SMS_123456789",
                                 "{\"code\":\"123456\"}"));
 
@@ -41,7 +41,7 @@ class AliyunSmsGatewayTest {
                         com.aliyun.dysmsapi20170525.models.SendSmsRequest.class);
         verify(client).sendSms(request.capture());
         assertThat(request.getValue().getPhoneNumbers()).isEqualTo("13800138000");
-        assertThat(request.getValue().getSignName()).isEqualTo("广东万一塑胶材料有限公司");
+        assertThat(request.getValue().getSignName()).isEqualTo("南北娱乐");
         assertThat(request.getValue().getTemplateCode()).isEqualTo("SMS_123456789");
         assertThat(request.getValue().getTemplateParam()).isEqualTo("{\"code\":\"123456\"}");
         assertThat(result).isEqualTo(new SmsGateway.SendResult("OK", "OK", "request-1"));
@@ -61,7 +61,7 @@ class AliyunSmsGatewayTest {
                                 gateway.send(
                                         new SmsGateway.SendCommand(
                                                 "13800138000",
-                                                "广东万一塑胶材料有限公司",
+                                                "南北娱乐",
                                                 "SMS_123456789",
                                                 "{\"code\":\"123456\"}")))
                 .isInstanceOfSatisfying(

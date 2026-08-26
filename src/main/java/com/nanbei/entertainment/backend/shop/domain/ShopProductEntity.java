@@ -18,6 +18,9 @@ public class ShopProductEntity {
     @Column(nullable = false)
     private String category;
 
+    @Column(nullable = false)
+    private String section;
+
     @Column(name = "display_name", nullable = false)
     private String displayName;
 
@@ -78,6 +81,10 @@ public class ShopProductEntity {
         this.id = UUID.randomUUID();
         this.productCode = productCode;
         this.category = category;
+        this.section =
+                "hot_recommendation".equals(category)
+                        ? "value_recommendation"
+                        : "default";
         this.displayName = displayName;
         this.iconKey = iconKey;
         this.priceCurrency = priceCurrency;
@@ -173,6 +180,7 @@ public class ShopProductEntity {
     public UUID getId() { return id; }
     public String getProductCode() { return productCode; }
     public String getCategory() { return category; }
+    public String getSection() { return section; }
     public String getDisplayName() { return displayName; }
     public String getIconKey() { return iconKey; }
     public String getPriceCurrency() { return priceCurrency; }

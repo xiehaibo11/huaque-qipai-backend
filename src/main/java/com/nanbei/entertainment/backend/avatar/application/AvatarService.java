@@ -2,6 +2,7 @@ package com.nanbei.entertainment.backend.avatar.application;
 
 import com.nanbei.entertainment.backend.common.error.ApiException;
 import com.nanbei.entertainment.backend.common.error.ErrorCode;
+import com.nanbei.entertainment.backend.common.profile.ProfileSource;
 import com.nanbei.entertainment.backend.gamehome.domain.PlayerProfileEntity;
 import com.nanbei.entertainment.backend.gamehome.infrastructure.PlayerProfileRepository;
 import com.nanbei.entertainment.backend.user.domain.UserEntity;
@@ -36,6 +37,37 @@ public class AvatarService {
     @Transactional
     public StoredAvatar save(
             UUID userId, byte[] sourceBytes, String declaredContentType) {
+        return save(userId, sourceBytes, declaredContentType, ProfileSource.USER);
+    }
+
+    @Transactional
+    public void saveFromWechat(
+            UUID userId, byte[] sourceBytes, String declaredContentType) {
+        PlayerProfileEntity current = profileRepository.findById(userId).orElse(null);
+        if (current != null && current.getAvatarSource() == ProfileSource.USER) {
+            return;
+        }
+        save(userId, sourceBytes, declaredContentType, ProfileSource.WECHAT);
+    }
+
+    @Transactional
+    public void clearWechatAvatar(UUID userId) {
+        profileRepository
+                .findById(userId)
+                .filter(profile -> profile.getAvatarSource() == ProfileSource.WECHAT)
+                .ifPresent(
+                        profile -> {
+                            blobStore.deleteByUserId(userId);
+                            profile.setAvatar(DEFAULT_AVATAR_KEY, ProfileSource.SYSTEM);
+                            profileRepository.save(profile);
+                        });
+    }
+
+    private StoredAvatar save(
+            UUID userId,
+            byte[] sourceBytes,
+            String declaredContentType,
+            ProfileSource source) {
         UserEntity user =
                 userRepository
                         .findById(userId)
@@ -60,7 +92,7 @@ public class AvatarService {
                 blobStore.save(
                         userId,
                         normalizer.normalize(sourceBytes, declaredContentType));
-        profile.setAvatarKey(stored.avatarKey());
+        profile.setAvatar(stored.avatarKey(), source);
         profileRepository.save(profile);
         return stored;
     }

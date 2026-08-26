@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -16,11 +17,25 @@ import org.springframework.data.repository.query.Param;
 public interface MailRepository extends JpaRepository<MailEntity, Long> {
     @Query(
             "select m from MailEntity m where m.userId = :userId and m.deletedAt is null"
+                    + " and m.sendAt <= :now"
                     + " and (m.expireAt is null or m.expireAt > :now)"
                     + " order by m.sendAt desc, m.id desc")
     List<MailEntity> findVisible(@Param("userId") UUID userId, @Param("now") Instant now);
 
+    @Query(
+            "select m from MailEntity m where m.userId = :userId and m.deletedAt is null"
+                    + " and m.sendAt <= :now"
+                    + " and (m.expireAt is null or m.expireAt > :now)"
+                    + " order by m.sendAt desc, m.id desc")
+    List<MailEntity> findVisible(
+            @Param("userId") UUID userId,
+            @Param("now") Instant now,
+            Pageable pageable);
+
     Optional<MailEntity> findByIdAndUserId(Long id, UUID userId);
+
+    Optional<MailEntity> findByUserIdAndSourceTypeAndSourceId(
+            UUID userId, String sourceType, String sourceId);
 
     List<MailEntity> findByUserIdAndIdIn(UUID userId, Collection<Long> ids);
 
@@ -35,6 +50,7 @@ public interface MailRepository extends JpaRepository<MailEntity, Long> {
     @Query(
             "update MailEntity m set m.readAt = :now where m.userId = :userId"
                     + " and m.readAt is null and m.deletedAt is null"
+                    + " and m.sendAt <= :now"
                     + " and (m.expireAt is null or m.expireAt > :now)")
     int markAllRead(@Param("userId") UUID userId, @Param("now") Instant now);
 }

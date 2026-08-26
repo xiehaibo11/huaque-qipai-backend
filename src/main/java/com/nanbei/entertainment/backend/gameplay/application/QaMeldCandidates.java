@@ -50,14 +50,33 @@ final class QaMeldCandidates {
         return combs;
     }
 
+    static List<List<Integer>> chowCandidates(
+            List<Integer> handTiles, int inTile, QaTaizhouJokerRule jokerRule) {
+        if (jokerRule.isJoker(inTile)) {
+            return List.of();
+        }
+        return chowCandidates(
+                handTiles, inTile, jokerRule.jokerTile(), jokerRule.insteadTile());
+    }
+
     /** 碰：手里至少两张同牌。 */
     static boolean canPung(List<Integer> handTiles, int inTile) {
         return QaTaizhouTiles.isPlayable(inTile) && countOf(handTiles, inTile) >= 2;
     }
 
+    static boolean canPung(
+            List<Integer> handTiles, int inTile, QaTaizhouJokerRule jokerRule) {
+        return !jokerRule.isJoker(inTile) && canPung(handTiles, inTile);
+    }
+
     /** 明杠（直杠）：手里正好三张同牌，加上别人打出的那张。 */
     static boolean canExposedKong(List<Integer> handTiles, int inTile) {
         return QaTaizhouTiles.isPlayable(inTile) && countOf(handTiles, inTile) == 3;
+    }
+
+    static boolean canExposedKong(
+            List<Integer> handTiles, int inTile, QaTaizhouJokerRule jokerRule) {
+        return !jokerRule.isJoker(inTile) && canExposedKong(handTiles, inTile);
     }
 
     /**
@@ -96,6 +115,16 @@ final class QaMeldCandidates {
             options.add(new KongOption("FILL", tile));
         }
         return options;
+    }
+
+    static List<KongOption> ownDrawKongOptions(
+            List<Integer> handTiles,
+            int drawnTile,
+            List<List<Integer>> exposedMelds,
+            QaTaizhouJokerRule jokerRule) {
+        return ownDrawKongOptions(handTiles, drawnTile, exposedMelds).stream()
+                .filter(option -> !jokerRule.isJoker(option.tileValue()))
+                .toList();
     }
 
     static int countOf(List<Integer> tiles, int target) {

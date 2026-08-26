@@ -4,6 +4,7 @@ import com.nanbei.entertainment.backend.common.error.ApiException;
 import com.nanbei.entertainment.backend.common.error.ErrorCode;
 import com.nanbei.entertainment.backend.gamehome.domain.PlayerWalletEntity;
 import com.nanbei.entertainment.backend.gamehome.infrastructure.PlayerWalletRepository;
+import com.nanbei.entertainment.backend.membership.application.GoldMembershipCardService;
 import com.nanbei.entertainment.backend.shop.domain.ShopInventoryItemEntity;
 import com.nanbei.entertainment.backend.shop.domain.ShopProductEntity;
 import com.nanbei.entertainment.backend.shop.domain.ShopProductRewardEntity;
@@ -28,18 +29,21 @@ public class ShopPurchaseService {
     private final ShopPurchaseRecordRepository purchaseRepository;
     private final ShopInventoryItemRepository inventoryRepository;
     private final PlayerWalletRepository walletRepository;
+    private final GoldMembershipCardService goldMembershipCardService;
 
     public ShopPurchaseService(
             ShopProductRepository productRepository,
             ShopProductRewardRepository rewardRepository,
             ShopPurchaseRecordRepository purchaseRepository,
             ShopInventoryItemRepository inventoryRepository,
-            PlayerWalletRepository walletRepository) {
+            PlayerWalletRepository walletRepository,
+            GoldMembershipCardService goldMembershipCardService) {
         this.productRepository = productRepository;
         this.rewardRepository = rewardRepository;
         this.purchaseRepository = purchaseRepository;
         this.inventoryRepository = inventoryRepository;
         this.walletRepository = walletRepository;
+        this.goldMembershipCardService = goldMembershipCardService;
     }
 
     @Transactional
@@ -166,6 +170,14 @@ public class ShopPurchaseService {
             case "ROOM_CARD" -> wallet.addRoomCards(rewardQuantity);
             case "COIN" -> wallet.addCoins(rewardQuantity);
             case "COUPON" -> wallet.addCoupons(rewardQuantity);
+            case "GOLD_MEMBERSHIP_DAY" -> {
+                if (GoldMembershipCardService.supports(itemCode)) {
+                    goldMembershipCardService.activate(
+                            userId, itemCode, rewardQuantity);
+                } else {
+                    grantInventory(userId, itemCode, rewardQuantity);
+                }
+            }
             default -> grantInventory(userId, itemCode, rewardQuantity);
         }
     }

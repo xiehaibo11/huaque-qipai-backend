@@ -1,3 +1,13 @@
 package com.nanbei.entertainment.backend.mail.application;
 
-public record MailDeletedCountResponse(long deletedCount) {}
+import java.util.List;
+
+public record MailDeletedCountResponse(long deletedCount, List<Long> deletedMailIds) {
+    public MailDeletedCountResponse {
+        deletedMailIds = List.copyOf(deletedMailIds);
+    }
+
+    public MailDeletedCountResponse(long deletedCount) {
+        this(deletedCount, List.of());
+    }
+}

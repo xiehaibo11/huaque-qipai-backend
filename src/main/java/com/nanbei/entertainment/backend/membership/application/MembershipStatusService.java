@@ -90,6 +90,29 @@ public class MembershipStatusService {
                 .orElse(false);
     }
 
+    @Transactional(readOnly = true)
+    public MembershipStatus snapshot(UUID userId) {
+        Instant now = clock.instant();
+        UserMembershipEntity membership =
+                membershipRepository.findById(userId).orElse(null);
+        if (membership == null) {
+            return new MembershipStatus(false, 0, null, null, false, 0);
+        }
+        boolean active = membership.isActiveAt(now);
+        return new MembershipStatus(
+                active,
+                active ? membership.getMembershipLevel() : 0,
+                membership.getStartedAt(),
+                membership.getExpiresAt(),
+                membership.isAutoRenew(),
+                active
+                        ? Math.max(
+                                0,
+                                ChronoUnit.DAYS.between(
+                                        now, membership.getExpiresAt()))
+                        : 0);
+    }
+
     private void synchronizeProfileMembershipLevel(UUID userId, int membershipLevel) {
         PlayerProfileEntity profile = profileService.ensureProfile(userId);
         if (profile.getMembershipLevel() == membershipLevel) {

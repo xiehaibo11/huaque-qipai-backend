@@ -132,7 +132,36 @@ class GameplayCommandServiceQaRoundTest {
 
         assertThat(response.revision()).isEqualTo(3L);
         assertThat(response.eventType()).isEqualTo("DISCARDED");
+        assertThat(response.events())
+                .extracting(GameplayEventView::type)
+                .containsSubsequence("DISCARDED", "DRAWN", "TURN_ADVANCED", "DISCARDED");
+        assertThat(response.events())
+                .filteredOn(
+                        event ->
+                                event.type().equals("DRAWN")
+                                        && event.payload().has("publicRound"))
+                .hasSize(4);
+        assertThat(response.events())
+                .filteredOn(event -> event.payload().has("playbackDelayMillis"))
+                .hasSize(3)
+                .allSatisfy(
+                        event ->
+                                assertThat(
+                                                event.payload()
+                                                        .path("playbackDelayMillis")
+                                                        .asLong())
+                                        .isBetween(
+                                                QaBotThinkingRhythm.MIN_MILLIS,
+                                                QaBotThinkingRhythm.MAX_MILLIS));
+        assertThat(response.events())
+                .extracting(GameplayEventView::eventOrder)
+                .containsExactlyElementsOf(
+                        java.util.stream.IntStream.rangeClosed(1, response.events().size())
+                                .boxed()
+                                .toList());
         assertThat(session.getRevision()).isEqualTo(3L);
+        assertThat(objectMapper.readTree(session.getState()).path("remainingWallCount").asInt())
+                .isEqualTo(ready.table().wall.size() - 4);
         assertThat(session.getState()).contains("qaDisclosure");
 
         ArgumentCaptor<GameEventEntity> saved = ArgumentCaptor.forClass(GameEventEntity.class);

@@ -49,6 +49,14 @@ class GameplayPersistenceEntityTest {
     }
 
     @Test
+    void goldSeatStartsFromThePlayersRealCoinBalance() {
+        GameSessionSeatEntity seat =
+                new GameSessionSeatEntity(SESSION_ID, 1, USER_ID, 18_765L, NOW);
+
+        assertThat(seat.getScore()).isEqualTo(18_765L);
+    }
+
+    @Test
     void commandStoresTheAcceptedRevisionAndResponseOnce() {
         GameCommandEntity command =
                 new GameCommandEntity(

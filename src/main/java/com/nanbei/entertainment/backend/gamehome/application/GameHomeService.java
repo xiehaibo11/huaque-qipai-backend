@@ -4,15 +4,18 @@ import com.nanbei.entertainment.backend.common.error.ApiException;
 import com.nanbei.entertainment.backend.common.error.ErrorCode;
 import com.nanbei.entertainment.backend.friend.application.FriendPresenceService;
 import com.nanbei.entertainment.backend.gamehome.domain.GameHomeEntryEntity;
+import com.nanbei.entertainment.backend.gamehome.domain.LobbyAnnouncementEntity;
 import com.nanbei.entertainment.backend.gamehome.domain.PlayerProfileEntity;
 import com.nanbei.entertainment.backend.gamehome.domain.PlayerWalletEntity;
 import com.nanbei.entertainment.backend.gamehome.infrastructure.GameHomeEntryRepository;
+import com.nanbei.entertainment.backend.gamehome.infrastructure.LobbyAnnouncementRepository;
 import com.nanbei.entertainment.backend.gamehome.infrastructure.PlayerWalletRepository;
 import com.nanbei.entertainment.backend.region.domain.RegionLobbyEntity;
 import com.nanbei.entertainment.backend.region.infrastructure.RegionLobbyRepository;
 import com.nanbei.entertainment.backend.region.infrastructure.UserRegionSelectionRepository;
 import com.nanbei.entertainment.backend.user.domain.UserEntity;
 import com.nanbei.entertainment.backend.user.infrastructure.UserRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -24,6 +27,7 @@ public class GameHomeService {
     private final PlayerProfileService profileService;
     private final PlayerWalletRepository walletRepository;
     private final GameHomeEntryRepository entryRepository;
+    private final LobbyAnnouncementRepository announcementRepository;
     private final RegionLobbyRepository lobbyRepository;
     private final UserRegionSelectionRepository selectionRepository;
     private final FriendPresenceService friendPresenceService;
@@ -33,6 +37,7 @@ public class GameHomeService {
             PlayerProfileService profileService,
             PlayerWalletRepository walletRepository,
             GameHomeEntryRepository entryRepository,
+            LobbyAnnouncementRepository announcementRepository,
             RegionLobbyRepository lobbyRepository,
             UserRegionSelectionRepository selectionRepository,
             FriendPresenceService friendPresenceService) {
@@ -40,6 +45,7 @@ public class GameHomeService {
         this.profileService = profileService;
         this.walletRepository = walletRepository;
         this.entryRepository = entryRepository;
+        this.announcementRepository = announcementRepository;
         this.lobbyRepository = lobbyRepository;
         this.selectionRepository = selectionRepository;
         this.friendPresenceService = friendPresenceService;
@@ -47,6 +53,10 @@ public class GameHomeService {
 
     @Transactional
     public GameHomeSnapshot load(UUID userId) {
+        return load(userId, Instant.now());
+    }
+
+    GameHomeSnapshot load(UUID userId, Instant now) {
         UserEntity user =
                 userRepository
                         .findById(userId)
@@ -80,6 +90,11 @@ public class GameHomeService {
                                                         == lobby.getLobbyId())
                         .map(GameHomeService::toEntry)
                         .toList();
+        List<GameHomeSnapshot.Announcement> announcements =
+                announcementRepository.findByEnabledTrueOrderBySortOrderAscIdAsc().stream()
+                        .filter(announcement -> announcement.isVisibleTo(lobby.getLobbyId(), now))
+                        .map(GameHomeService::toAnnouncement)
+                        .toList();
         return new GameHomeSnapshot(
                 new GameHomeSnapshot.Player(
                         userId,
@@ -94,7 +109,8 @@ public class GameHomeService {
                         wallet.getDiamonds()),
                 new GameHomeSnapshot.Region(
                         lobby.getLobbyId(), lobby.getAreaName()),
-                entries);
+                entries,
+                announcements);
     }
 
     private RegionLobbyEntity resolveLobby(UUID userId) {
@@ -128,5 +144,10 @@ public class GameHomeService {
                 entry.getBubbleText(),
                 entry.getBubbleType(),
                 entry.getBubbleIntervalSeconds());
+    }
+
+    private static GameHomeSnapshot.Announcement toAnnouncement(
+            LobbyAnnouncementEntity announcement) {
+        return new GameHomeSnapshot.Announcement(announcement.getContent());
     }
 }

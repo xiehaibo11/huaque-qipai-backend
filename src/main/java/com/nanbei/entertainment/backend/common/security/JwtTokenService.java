@@ -33,6 +33,7 @@ public class JwtTokenService {
                             .expirationTime(Date.from(now.plus(properties.accessTokenTtl())))
                             .claim("scope", "user")
                             .claim("displayName", user.getDisplayName())
+                            .claim("authVersion", user.getAuthVersion())
                             .build();
             SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
             jwt.sign(new MACSigner(properties.jwtSecret()));

@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface PlayerAvatarRepository
         extends JpaRepository<PlayerAvatarEntity, String> {
     Optional<PlayerAvatarEntity> findByUserId(UUID userId);
+
+    void deleteByUserId(UUID userId);
 }

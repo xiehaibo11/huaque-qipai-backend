@@ -13,5 +13,7 @@ public enum GameplayCommandType {
     KONG,
     HU,
     PASS,
-    MULTIPLE_CHOICE
+    MULTIPLE_CHOICE,
+    /** 客户端转发族（原版 msgClientForward XY_ID=1043 / msgBaseClientForwardEx XY_ID=22）。 */
+    CLIENT_FORWARD
 }

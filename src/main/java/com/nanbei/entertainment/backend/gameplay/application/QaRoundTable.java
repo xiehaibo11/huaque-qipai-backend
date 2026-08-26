@@ -30,16 +30,34 @@ final class QaRoundTable {
     final int dealerSeat;
     final int roundNumber;
     final int maxPlayCount;
+    /** 本桌实际底分；金币场由撮合档位下发，房卡场默认 1。 */
+    long baseScore = 1L;
+    boolean goldMode;
+    final Map<Integer, Long> openingCoinsBySeat = new LinkedHashMap<>();
+    final Set<Integer> discardedTileTypes = new LinkedHashSet<>();
     Stage stage = Stage.AWAIT_DRAW;
     int turnIndex;
     int activeSeat;
     final List<Integer> wall = new ArrayList<>();
+    String shuffleAlgorithm;
+    String shuffleSeedSource;
+    String shuffleCommitment;
+    boolean physicalWallOpening;
+    int wallOpenIndex = -1;
+    int wallAsc = -1;
+    int wallDesc = -1;
+    int wallFirstAsc = -1;
+    int wallFirstDesc = -1;
     private final List<Integer> openTiles = new ArrayList<>();
     private final Map<Integer, List<Integer>> hands = new LinkedHashMap<>();
     private final Map<Integer, List<Integer>> rivers = new LinkedHashMap<>();
     private final Map<Integer, List<Integer>> flowers = new LinkedHashMap<>();
     private final Map<Integer, List<Meld>> melds = new LinkedHashMap<>();
     LastDiscard lastDiscard;
+    DiscardSnapshot lastDiscardSnapshot;
+    Integer baoPaiSeat;
+    /** 补杠声明在抢杠胡窗口结束前不落地。 */
+    PendingKong pendingKong;
     /** 仍有效的真人 offer（seat → offer）；PASS/消费/过期后即移除。 */
     private final Map<Integer, PendingOffer> offers = new LinkedHashMap<>();
     final Set<Integer> botSeats;
@@ -51,10 +69,7 @@ final class QaRoundTable {
     int nextOfferId = 1;
     Outcome outcome;
     QaTaizhouTotalResult totalResult;
-    /**
-     * 生牌数（南北自建 QA 规则，非原版服务端算法）：开局固定 22，真人/假人每从墙摸走
-     * 一张牌 -1，归零后不再变化；发牌不扣减。-1 表示旧状态缺席（快照下发 null）。
-     */
+    /** 进入生牌阶段后的剩余墙牌数；-1 表示尚未进入。 */
     int shengPaiCount = -1;
     /**
      * 剩余庄数（南北自建 QA 规则，非原版服务端算法）：总盘固定 8 局，
@@ -63,10 +78,17 @@ final class QaRoundTable {
     int leftBankerCount = -1;
     /** 真人座位最近一次出牌 offer 的听牌映射（自建）；出牌/局终时清除。 */
     private final Map<Integer, List<TingEntry>> tingInfos = new LinkedHashMap<>();
+    private final Map<Integer, Set<Integer>> passedHuTiles = new LinkedHashMap<>();
+    private final Map<Integer, Set<Integer>> passedPungTiles = new LinkedHashMap<>();
 
     record Meld(String combType, List<Integer> tiles, int fromSeat) {}
 
     record LastDiscard(int seat, int tile, int tileIndex) {}
+
+    record DiscardSnapshot(
+            int seat, int tile, boolean shengPaiStage, boolean rawTile, boolean allHandRaw) {}
+
+    record PendingKong(int seat, int tile, Meld pong) {}
 
     /** Original-shaped msgThrowChip projection persisted only while the dice bridge is pending. */
     record DiceRoll(int seatNumber, List<Integer> values, int gameStep, boolean showAni) {
@@ -193,6 +215,8 @@ final class QaRoundTable {
             table.rivers.put(seat, new ArrayList<>());
             table.flowers.put(seat, new ArrayList<>());
             table.melds.put(seat, new ArrayList<>());
+            table.passedHuTiles.put(seat, new LinkedHashSet<>());
+            table.passedPungTiles.put(seat, new LinkedHashSet<>());
         }
         return table;
     }
@@ -227,6 +251,19 @@ final class QaRoundTable {
 
     Map<Integer, List<TingEntry>> tingInfos() {
         return tingInfos;
+    }
+
+    Map<Integer, Set<Integer>> passedHuTiles() {
+        return passedHuTiles;
+    }
+
+    Map<Integer, Set<Integer>> passedPungTiles() {
+        return passedPungTiles;
+    }
+
+    void clearPassedClaims(int seat) {
+        passedHuTiles.get(seat).clear();
+        passedPungTiles.get(seat).clear();
     }
 
     int nextSeat(int seat) {
@@ -267,14 +304,7 @@ final class QaRoundTable {
         throw new IllegalStateException("offer is not attached to any seat");
     }
 
-    /**
-     * 黄牌保留张数（南北自建，依据 {@code 创建房间的台州麻将游戏规则.md}：「当剩下牌的总数等于
-     * 8 对时…如果还是没有人和牌…强制结束，庄家自动下庄」）。
-     *
-     * <p>这 16 张是不可摸的王牌：局内摸牌降到该阈值即黄牌收局，所以「剩余」停在 16 而不是 0。
-     * 原始服务端的王牌张数与边界仍属 {@code UNRESOLVED_ORIGINAL_SERVER}，这里只按已知规则文档实现。
-     */
-    static final int DRAW_RESERVE_TILES = 16;
+    static final int DRAW_RESERVE_TILES = 17;
 
     /** 局内摸牌是否已到黄牌阈值；发牌与翻得不走这条判断。 */
     boolean wallExhausted() {
@@ -285,7 +315,11 @@ final class QaRoundTable {
         if (wall.isEmpty()) {
             throw new IllegalStateException("QA wall exhausted");
         }
-        return wall.remove(0);
+        int tile = wall.remove(0);
+        if (wallAsc >= 0) {
+            wallAsc = Math.floorMod(wallAsc - 1, QaTaizhouWallOpening.WALL_SIZE);
+        }
+        return tile;
     }
 
     void markDrawnTile(int seat, int tile) {
@@ -305,7 +339,34 @@ final class QaRoundTable {
         return drawnTile != null && drawnTileSeat == seat;
     }
 
-    /** 翻开牌墙中的一张牌并建立本局财神/白板替代映射。 */
+    /** 按双骰定位翻开物理牌墙，并把正向待抓游标排成后续抓牌顺序。 */
+    void openWall(QaTaizhouWallOpening opening) {
+        if (wall.size() != QaTaizhouWallOpening.WALL_SIZE) {
+            throw new IllegalStateException("Taizhou wall must contain 136 tiles before opening");
+        }
+        List<Integer> physicalWall = List.copyOf(wall);
+        int openTile = physicalWall.get(opening.openIndex());
+        if (!QaTaizhouTiles.isPlayable(openTile)) {
+            throw new IllegalStateException("opened wall tile is not playable: " + openTile);
+        }
+        wall.clear();
+        for (int offset = 0; wall.size() < QaTaizhouWallOpening.WALL_SIZE - 1; offset++) {
+            int physicalIndex =
+                    Math.floorMod(opening.firstAsc() - offset, QaTaizhouWallOpening.WALL_SIZE);
+            if (physicalIndex != opening.openIndex()) {
+                wall.add(physicalWall.get(physicalIndex));
+            }
+        }
+        wallOpenIndex = opening.openIndex();
+        wallAsc = opening.firstAsc();
+        wallDesc = opening.firstDesc();
+        wallFirstAsc = opening.firstAsc();
+        wallFirstDesc = opening.firstDesc();
+        openTiles.add(openTile);
+        jokerRule = QaTaizhouJokerRule.fromOpenTile(openTile);
+    }
+
+    /** 旧测试牌墙兼容入口；真实台州开局使用 {@link #openWall(QaTaizhouWallOpening)}。 */
     void revealJoker() {
         int openTile = drawFromWall();
         if (!QaTaizhouTiles.isPlayable(openTile)) {

@@ -79,7 +79,9 @@ class BackendQaTaizhouRoundFlowIT extends RoomFlowTestSupport {
                         "Idempotency-Key",
                         "qa-discard-" + UUID.randomUUID());
         assertThat(discarded.statusCode()).isEqualTo(200);
-        assertThat(json(discarded.body()).path("eventType").asText()).isEqualTo("DISCARDED");
+        JsonNode discardedResponse = json(discarded.body());
+        assertThat(discardedResponse.path("eventType").asText()).isEqualTo("DISCARDED");
+        assertThat(eventTypes(discardedResponse.path("events"))).contains("DISCARDED");
 
         // actionToken 一次性：同一 token 重放（换新的幂等键）必须被 409 拒绝。
         JsonNode afterDiscard =

@@ -1,2 +1,0 @@
-ALTER TABLE game_session_seats
-    ADD COLUMN score BIGINT NOT NULL DEFAULT 1000;

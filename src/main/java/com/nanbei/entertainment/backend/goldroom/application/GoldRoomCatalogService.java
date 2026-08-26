@@ -6,6 +6,9 @@ import com.nanbei.entertainment.backend.goldroom.domain.GoldGameEntity;
 import com.nanbei.entertainment.backend.goldroom.domain.GoldGameId;
 import com.nanbei.entertainment.backend.goldroom.infrastructure.GoldGameLevelRepository;
 import com.nanbei.entertainment.backend.goldroom.infrastructure.GoldGameRepository;
+import com.nanbei.entertainment.backend.gameplay.application.GoldRoomMatchService;
+import com.nanbei.entertainment.backend.room.domain.RoomStatus;
+import com.nanbei.entertainment.backend.room.infrastructure.GameRoomRepository;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,11 +18,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class GoldRoomCatalogService {
     private final GoldGameRepository gameRepository;
     private final GoldGameLevelRepository levelRepository;
+    private final GameRoomRepository roomRepository;
 
     public GoldRoomCatalogService(
-            GoldGameRepository gameRepository, GoldGameLevelRepository levelRepository) {
+            GoldGameRepository gameRepository,
+            GoldGameLevelRepository levelRepository,
+            GameRoomRepository roomRepository) {
         this.gameRepository = gameRepository;
         this.levelRepository = levelRepository;
+        this.roomRepository = roomRepository;
     }
 
     @Transactional(readOnly = true)
@@ -44,7 +51,18 @@ public class GoldRoomCatalogService {
                 levelRepository
                         .findByIdLobbyIdAndIdGameIdAndEnabledTrueOrderBySortOrder(lobbyId, gameId)
                         .stream()
-                        .map(GoldLevelView::from)
+                        .map(
+                                level ->
+                                        GoldLevelView.from(
+                                                level,
+                                                roomRepository.countActiveGoldPlayers(
+                                                        game.getBoxGameId(),
+                                                        50,
+                                                        GoldRoomMatchService.matchKey(
+                                                                lobbyId,
+                                                                game.getBoxGameId(),
+                                                                level.getId().getRoomNameFlag()),
+                                                        RoomStatus.DISSOLVED)))
                         .toList();
         if (levels.isEmpty()) {
             // 原版 joinGoldRoomFirst 在 roomLevelInfos 为空时弹「获取房间信息出错」并中止，
@@ -52,6 +70,6 @@ public class GoldRoomCatalogService {
             throw new ApiException(ErrorCode.GOLD_GAME_NOT_FOUND, "金币场游戏不存在");
         }
         List<Integer> roomFlags = levels.stream().map(GoldLevelView::roomNameFlag).toList();
-        return new GoldRoomConfView(GoldGameView.from(game), roomFlags, levels, false);
+        return new GoldRoomConfView(GoldGameView.from(game), roomFlags, levels, true);
     }
 }

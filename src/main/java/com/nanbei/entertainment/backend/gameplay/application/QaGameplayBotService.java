@@ -113,6 +113,17 @@ public class QaGameplayBotService {
             List<GameSessionSeatEntity> currentSeats,
             Instant occurredAt,
             UUID preferredBotUserId) {
+        return ensureTenBotsAndFillSeats(
+                room, session, currentSeats, occurredAt, preferredBotUserId, 1000L);
+    }
+
+    public List<GameSessionSeatEntity> ensureTenBotsAndFillSeats(
+            GameRoomEntity room,
+            GameSessionEntity session,
+            List<GameSessionSeatEntity> currentSeats,
+            Instant occurredAt,
+            UUID preferredBotUserId,
+            long botInitialCoins) {
         if (!enabled()) {
             throw new ApiException(
                     ErrorCode.GAME_ACTION_NOT_ALLOWED,
@@ -142,7 +153,8 @@ public class QaGameplayBotService {
                 participantRepository.save(new RoomParticipantEntity(room.getId(), bot.getId()));
             }
             GameSessionSeatEntity seat =
-                    new GameSessionSeatEntity(session.getId(), nextSeat++, bot.getId(), occurredAt);
+                    new GameSessionSeatEntity(
+                            session.getId(), nextSeat++, bot.getId(), botInitialCoins, occurredAt);
             seat.setConnected(true, occurredAt);
             seat.setReady(true, occurredAt);
             additions.add(seat);
@@ -165,6 +177,21 @@ public class QaGameplayBotService {
         return seats.stream()
                 .sorted(java.util.Comparator.comparingInt(seat -> seat.getId().getSeatNumber()))
                 .toList();
+    }
+
+    List<GameSessionSeatEntity> replaceIneligibleGoldBots(
+            GameRoomEntity room,
+            GameSessionEntity session,
+            List<GameSessionSeatEntity> currentSeats,
+            Instant occurredAt) {
+        return QaGoldBotLifecycle.replace(
+                enabled(),
+                room,
+                currentSeats,
+                occurredAt,
+                () -> ensureBotPool(occurredAt),
+                this::isQaBot,
+                participantRepository);
     }
 
     private static List<UserEntity> preferredFirst(

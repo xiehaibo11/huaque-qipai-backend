@@ -9,6 +9,11 @@ import com.nanbei.entertainment.backend.user.domain.IdentityProvider;
 import com.nanbei.entertainment.backend.user.domain.UserEntity;
 import com.nanbei.entertainment.backend.user.domain.UserIdentityEntity;
 import com.nanbei.entertainment.backend.user.infrastructure.UserIdentityRepository;
+import com.nanbei.entertainment.backend.membership.application.MembershipStatus;
+import com.nanbei.entertainment.backend.membership.application.MembershipStatusService;
+import com.nanbei.entertainment.backend.realname.application.RealNameService;
+import com.nanbei.entertainment.backend.realname.application.RealNameStatus;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +27,8 @@ class PersonalCenterServiceTest {
     @Mock GameHomeService gameHomeService;
     @Mock UserIdentityRepository identityRepository;
     @Mock PersonalCenterFunctionService functionService;
+    @Mock RealNameService realNameService;
+    @Mock MembershipStatusService membershipStatusService;
 
     PersonalCenterService service;
 
@@ -31,7 +38,9 @@ class PersonalCenterServiceTest {
                 new PersonalCenterService(
                         gameHomeService,
                         identityRepository,
-                        functionService);
+                        functionService,
+                        realNameService,
+                        membershipStatusService);
     }
 
     @Test
@@ -68,7 +77,25 @@ class PersonalCenterServiceTest {
         when(functionService.loadPrivacy(userId))
                 .thenReturn(
                         new PersonalCenterPrivacySettings(
-                                true, true, true, true, false));
+                                true, true, true, true, false, true));
+        Instant expiresAt = Instant.parse("2026-09-30T12:00:00Z");
+        when(realNameService.status(userId))
+                .thenReturn(
+                        new RealNameStatus(
+                                "VERIFIED",
+                                "张*",
+                                "330***********1234",
+                                Instant.parse("2026-01-02T03:04:05Z"),
+                                true));
+        when(membershipStatusService.snapshot(userId))
+                .thenReturn(
+                        new MembershipStatus(
+                                true,
+                                1,
+                                Instant.parse("2026-08-01T12:00:00Z"),
+                                expiresAt,
+                                false,
+                                38L));
 
         PersonalCenterSnapshot result = service.load(userId);
 
@@ -83,8 +110,16 @@ class PersonalCenterServiceTest {
         assertThat(result.account().identityProviders())
                 .containsExactly("PHONE", "WECHAT");
         assertThat(result.region().areaName()).isEqualTo("台州");
+        assertThat(result.healthCertification().status())
+                .isEqualTo("VERIFIED");
+        assertThat(result.healthCertification().realNameMasked())
+                .isEqualTo("张*");
+        assertThat(result.membership().active()).isTrue();
+        assertThat(result.membership().expiresAt()).isEqualTo(expiresAt);
+        assertThat(result.membership().remainingDays()).isEqualTo(38L);
         assertThat(result.capabilities().avatarRefresh()).isTrue();
-        assertThat(result.capabilities().accountDeletion()).isFalse();
+        assertThat(result.capabilities().accountDeletion()).isTrue();
+        assertThat(result.capabilities().phoneRebind()).isTrue();
         assertThat(result.privacy().allowFriendRequests()).isTrue();
         assertThat(result.privacy().personalizedRecommendations()).isFalse();
     }
@@ -113,7 +148,13 @@ class PersonalCenterServiceTest {
         when(functionService.loadPrivacy(userId))
                 .thenReturn(
                         new PersonalCenterPrivacySettings(
-                                true, true, true, true, false));
+                                true, true, true, true, false, true));
+        when(realNameService.status(userId))
+                .thenReturn(RealNameStatus.unverified(false));
+        when(membershipStatusService.snapshot(userId))
+                .thenReturn(
+                        new MembershipStatus(
+                                false, 0, null, null, false, 0L));
 
         PersonalCenterSnapshot result = service.load(userId);
 

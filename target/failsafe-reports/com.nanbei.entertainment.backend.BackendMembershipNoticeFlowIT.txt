@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.nanbei.entertainment.backend.BackendMembershipNoticeFlowIT
--------------------------------------------------------------------------------
-Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.020 s -- in com.nanbei.entertainment.backend.BackendMembershipNoticeFlowIT

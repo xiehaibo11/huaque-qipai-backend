@@ -12,7 +12,8 @@ import tools.jackson.databind.JsonNode;
  * actionToken 一次性：与未消费的 pending offer 匹配才受理，消费后整桌 offer 由裁决关闭。
  */
 final class QaRoundCommandApplier {
-    private static final Set<String> MULTIPLE_CHOICES = Set.of("NONE", "ADD", "SUPER");
+    private static final Set<String> MULTIPLE_CHOICES =
+            Set.of("PASS", "DEFAULT", "SUPER", "NONE", "ADD");
 
     void apply(
             QaRoundTurnDriver turnDriver,
@@ -141,11 +142,13 @@ final class QaRoundCommandApplier {
                     break;
                 }
             }
-            if (pong == null || !hand.remove(Integer.valueOf(tile))) {
+            if (pong == null || !hand.contains(tile)) {
                 throw notAllowed("补杠缺少碰或手牌");
             }
-            table.melds().get(actorSeat).remove(pong);
-            meld = new QaRoundTable.Meld("FILL_KONG", List.of(tile, tile, tile, tile), actorSeat);
+            table.offers().remove(actorSeat);
+            turnDriver.requestFillKong(
+                    table, context, revision, events, actorSeat, tile, pong);
+            return;
         }
         table.melds().get(actorSeat).add(meld);
         table.offers().remove(actorSeat);
@@ -165,17 +168,25 @@ final class QaRoundCommandApplier {
             throw notAllowed("当前没有胡牌权限");
         }
         if (offer.playOffer) {
-            if (!QaWinDetector.canWin(table.hands().get(actorSeat))) {
+            if (!QaWinDetector.canWin(table.hands().get(actorSeat), table.jokerRule)) {
                 throw notAllowed("自建胡判定未通过，无法胡牌");
             }
             table.offers().remove(actorSeat);
-            turnDriver.declareWin(table, context, revision, events, actorSeat, "ZIMO", null);
+            turnDriver.declareWin(
+                    table,
+                    context,
+                    revision,
+                    events,
+                    actorSeat,
+                    "ZIMO",
+                    null,
+                    table.drawnTile == null ? 0 : table.drawnTile);
             return;
         }
         java.util.ArrayList<Integer> withTile =
                 new java.util.ArrayList<>(table.hands().get(actorSeat));
         withTile.add(offer.contextTile);
-        if (!QaWinDetector.canWin(withTile)) {
+        if (!QaWinDetector.canWin(withTile, table.jokerRule)) {
             throw notAllowed("自建胡判定未通过，无法胡牌");
         }
         offer.claimKind = QaClaim.Kind.HU;
@@ -193,6 +204,14 @@ final class QaRoundCommandApplier {
         QaRoundTable.PendingOffer offer = requireOffer(table, actorSeat, token(payload));
         if (offer.playOffer || !QaPowerMask.has(offer.powerMask, QaPowerMask.CANCEL)) {
             throw notAllowed("当前没有可放弃的动作窗口");
+        }
+        if (offer.contextTile != null) {
+            if (QaPowerMask.has(offer.powerMask, QaPowerMask.HU)) {
+                table.passedHuTiles().get(actorSeat).add(offer.contextTile);
+            }
+            if (QaPowerMask.has(offer.powerMask, QaPowerMask.PUNG)) {
+                table.passedPungTiles().get(actorSeat).add(offer.contextTile);
+            }
         }
         offer.passed = true;
         turnDriver.expireOffer(table, revision, events, actorSeat, offer.offerId);

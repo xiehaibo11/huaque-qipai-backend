@@ -24,7 +24,7 @@ import org.springframework.web.client.RestClient;
 @ExtendWith(OutputCaptureExtension.class)
 class WeChatOpenApiClientTest {
     @Test
-    void exchangesCodeAtFixedWechatEndpoint() {
+    void exchangesCodeAndLoadsWechatProfile() {
         TestHarness harness = harness();
         harness.server()
                 .expect(
@@ -48,12 +48,43 @@ class WeChatOpenApiClientTest {
                                 }
                                 """,
                                 MediaType.APPLICATION_JSON));
+        harness.server()
+                .expect(
+                        requestTo(
+                                "https://api.weixin.qq.com/sns/userinfo"
+                                        + "?access_token=wechat-access-token"
+                                        + "&openid=openid-1"
+                                        + "&lang=zh_CN"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(
+                        withSuccess(
+                                """
+                                {
+                                  "openid": "openid-1",
+                                  "nickname": "牌友昵称",
+                                  "headimgurl": "https://thirdwx.qlogo.cn/mmopen/avatar/132",
+                                  "unionid": "unionid-1"
+                                }
+                                """,
+                                MediaType.APPLICATION_JSON));
+        harness.server()
+                .expect(
+                        requestTo(
+                                "https://thirdwx.qlogo.cn/mmopen/avatar/132"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(
+                        withSuccess(
+                                new byte[] {1, 2, 3},
+                                MediaType.IMAGE_JPEG));
 
         WeChatTokenResponse response =
                 harness.client().exchange("one-time-code");
 
         assertThat(response.openid()).isEqualTo("openid-1");
         assertThat(response.unionid()).isEqualTo("unionid-1");
+        assertThat(response.nickname()).isEqualTo("牌友昵称");
+        assertThat(response.avatarBytes()).containsExactly(1, 2, 3);
+        assertThat(response.avatarContentType()).isEqualTo("image/jpeg");
         harness.server().verify();
     }
 
@@ -124,11 +155,29 @@ class WeChatOpenApiClientTest {
                                 }
                                 """,
                                 MediaType.TEXT_PLAIN));
+        harness.server()
+                .expect(
+                        requestTo(
+                                "https://api.weixin.qq.com/sns/userinfo"
+                                        + "?access_token=wechat-access-token"
+                                        + "&openid=openid-1"
+                                        + "&lang=zh_CN"))
+                .andRespond(
+                        withSuccess(
+                                """
+                                {
+                                  "openid": "openid-1",
+                                  "nickname": "牌友昵称",
+                                  "headimgurl": ""
+                                }
+                                """,
+                                MediaType.TEXT_PLAIN));
 
         WeChatTokenResponse response =
                 harness.client().exchange("one-time-code");
 
         assertThat(response.openid()).isEqualTo("openid-1");
+        assertThat(response.nickname()).isEqualTo("牌友昵称");
         assertThat(output).doesNotContain(
                         "one-time-code",
                         "server-secret",

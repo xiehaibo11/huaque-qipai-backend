@@ -26,6 +26,34 @@ class WeChatExternalIdentityVerifierTest {
 
         assertThat(identity.provider()).isEqualTo(IdentityProvider.WECHAT);
         assertThat(identity.subject()).isEqualTo("unionid:unionid-1");
+        assertThat(identity.subjects())
+                .containsExactly(
+                        "unionid:unionid-1",
+                        "appid:wx-test:openid:openid-1");
+    }
+
+    @Test
+    void carriesWechatProfileIntoVerifiedIdentity() {
+        WeChatCodeExchange exchange =
+                code ->
+                        new WeChatTokenResponse(
+                                "openid-1",
+                                "unionid-1",
+                                null,
+                                null,
+                                "wechat-access-token",
+                                "牌友昵称",
+                                new byte[] {1, 2, 3},
+                                "image/jpeg");
+        WeChatExternalIdentityVerifier verifier =
+                new WeChatExternalIdentityVerifier(enabledProperties(), exchange);
+
+        ExternalIdentity identity =
+                verifier.verify(IdentityProvider.WECHAT, "one-time-code");
+
+        assertThat(identity.displayName()).isEqualTo("牌友昵称");
+        assertThat(identity.avatarBytes()).containsExactly(1, 2, 3);
+        assertThat(identity.avatarContentType()).isEqualTo("image/jpeg");
     }
 
     @Test
@@ -40,6 +68,8 @@ class WeChatExternalIdentityVerifierTest {
 
         assertThat(identity.subject())
                 .isEqualTo("appid:wx-test:openid:openid-1");
+        assertThat(identity.subjects())
+                .containsExactly("appid:wx-test:openid:openid-1");
     }
 
     @Test

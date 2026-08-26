@@ -6,6 +6,7 @@ import com.nanbei.entertainment.backend.common.config.WeChatProperties;
 import com.nanbei.entertainment.backend.common.error.ApiException;
 import com.nanbei.entertainment.backend.common.error.ErrorCode;
 import com.nanbei.entertainment.backend.user.domain.IdentityProvider;
+import java.util.List;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -47,23 +48,33 @@ public class WeChatExternalIdentityVerifier
         }
 
         WeChatTokenResponse response = codeExchange.exchange(credential);
-        String unionId = trimmed(response.unionid());
-        if (!unionId.isEmpty()) {
-            return new ExternalIdentity(
-                    IdentityProvider.WECHAT, "unionid:" + unionId);
-        }
         String openId = trimmed(response.openid());
         if (openId.isEmpty()) {
             throw new ApiException(
                     ErrorCode.AUTH_PROVIDER_UPSTREAM_FAILED,
                     "微信登录服务暂不可用，请稍后重试");
         }
-        return new ExternalIdentity(
-                IdentityProvider.WECHAT,
+        String openIdSubject =
                 "appid:"
                         + properties.appId().trim()
                         + ":openid:"
-                        + openId);
+                        + openId;
+        String unionId = trimmed(response.unionid());
+        if (!unionId.isEmpty()) {
+            return new ExternalIdentity(
+                    IdentityProvider.WECHAT,
+                    "unionid:" + unionId,
+                    List.of(openIdSubject),
+                    response.nickname(),
+                    response.avatarBytes(),
+                    response.avatarContentType());
+        }
+        return new ExternalIdentity(
+                IdentityProvider.WECHAT,
+                openIdSubject,
+                response.nickname(),
+                response.avatarBytes(),
+                response.avatarContentType());
     }
 
     private static String trimmed(String value) {

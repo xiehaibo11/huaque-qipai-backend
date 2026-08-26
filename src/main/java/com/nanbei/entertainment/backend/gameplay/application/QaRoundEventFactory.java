@@ -44,11 +44,15 @@ final class QaRoundEventFactory {
         return GameEvent.publicEvent(revision, "BOT_SEATS_FILLED", payload);
     }
 
-    GameEvent wallShuffled(long revision, int wallSize, int remainingWallCount) {
+    GameEvent wallShuffled(long revision, QaRoundTable table, int wallSize) {
         Map<String, Object> payload = markerPayload();
-        payload.put("algorithm", mode.wallAlgorithm());
+        payload.put("algorithm", table.shuffleAlgorithm);
+        payload.put("seedSource", table.shuffleSeedSource);
+        if (table.shuffleCommitment != null) {
+            payload.put("commitment", table.shuffleCommitment);
+        }
         payload.put("wallSize", wallSize);
-        payload.put("remainingWallCount", remainingWallCount);
+        payload.put("remainingWallCount", table.wall.size());
         return GameEvent.publicEvent(revision, "WALL_SHUFFLED", payload);
     }
 
@@ -66,8 +70,22 @@ final class QaRoundEventFactory {
 
     GameEvent diceRolled(long revision, QaRoundTable table) {
         Map<String, Object> payload = basePayload(table, GamePhase.DEALING);
-        payload.put("diceRoll", QaTaizhouProjection.diceRollPayload(table.diceRoll));
+        Map<String, Object> diceRoll = QaTaizhouProjection.diceRollPayload(table.diceRoll);
+        payload.put("diceRoll", diceRoll);
         return GameEvent.publicEvent(revision, "DICE_ROLLED", payload);
+    }
+
+    GameEvent wallOpened(long revision, QaRoundTable table) {
+        Map<String, Object> payload = basePayload(table, GamePhase.DEALING);
+        payload.put("wallState", wallStatePayload(table));
+        payload.put(
+                "openWall",
+                Map.of(
+                        "nIndex", table.wallOpenIndex,
+                        "nMah", table.openTiles().get(0)));
+        payload.put("jokerTiles", table.jokerRule.jokerTiles());
+        payload.put("insteadTiles", table.jokerRule.insteadTiles());
+        return GameEvent.publicEvent(revision, "WALL_OPENED", payload);
     }
 
     List<GameEvent> dealt(long revision, QaRoundContext context, QaRoundTable table) {
@@ -133,10 +151,13 @@ final class QaRoundEventFactory {
     GameEvent turnAdvanced(long revision, QaRoundTable table) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("activeSeat", table.activeSeat);
-        payload.put("clockRemainingSeconds", QaRoundClock.DEFAULT_SECONDS);
         payload.put("remainingWallCount", table.wall.size());
         if (table.isBot(table.activeSeat)) {
-            payload.put("playbackDelayMillis", QaTaizhouBotPolicy.thinkingDelayMillis(table));
+            long delay = QaTaizhouBotPolicy.thinkingDelayMillis(table);
+            payload.put("clockRemainingSeconds", (int) ((delay + 999L) / 1_000L));
+            payload.put("playbackDelayMillis", delay);
+        } else {
+            payload.put("clockRemainingSeconds", QaRoundClock.TURN_SECONDS);
         }
         return GameEvent.publicEvent(
                 revision,
@@ -156,9 +177,11 @@ final class QaRoundEventFactory {
     }
 
     /** SHENG_PAI_COUNT（自建，对齐 msgShengPaiCnt 语义）：首次在 DEALT 后下发，之后随摸牌递减。 */
-    GameEvent shengPaiCount(long revision, int shengPaiCount) {
+    GameEvent shengPaiCount(long revision, int shengPaiCount, boolean first) {
         return GameEvent.publicEvent(
-                revision, "SHENG_PAI_COUNT", Map.of("shengPaiCount", shengPaiCount));
+                revision,
+                "SHENG_PAI_COUNT",
+                Map.of("shengPaiCount", shengPaiCount, "bFirst", first));
     }
 
     /** LEFT_BANKER（自建，对齐 msgLeftBanker 语义）：每局开始各发一次。 */
@@ -209,6 +232,14 @@ final class QaRoundEventFactory {
         return GameEvent.publicEvent(revision, "ROUND_RESULT_READY", payload);
     }
 
+    GameEvent totalResultReady(long revision, QaRoundTable table) {
+        Map<String, Object> payload = markerPayload();
+        payload.put("phase", GamePhase.ROUND_RESULT.name());
+        payload.put("roundNumber", table.roundNumber);
+        payload.put("totalResult", projection.totalResult(table));
+        return GameEvent.publicEvent(revision, "TOTAL_RESULT_READY", payload);
+    }
+
     private Map<String, Object> basePayload(QaRoundTable table, GamePhase phase) {
         Map<String, Object> payload = new LinkedHashMap<>();
         mode.putMarkers(payload);
@@ -216,9 +247,23 @@ final class QaRoundEventFactory {
         payload.put("roundNumber", table.roundNumber);
         payload.put("turnIndex", table.turnIndex);
         payload.put("activeSeat", table.activeSeat);
-        payload.put("clockRemainingSeconds", QaRoundClock.DEFAULT_SECONDS);
+        payload.put("clockRemainingSeconds", QaRoundClock.remainingSeconds(table));
         payload.put("remainingWallCount", table.wall.size());
+        if (table.wallFirstAsc >= 0) {
+            payload.put("wallState", wallStatePayload(table));
+        }
         return payload;
+    }
+
+    private static Map<String, Object> wallStatePayload(QaRoundTable table) {
+        return Map.of(
+                "nWallCnt", table.wall.size(),
+                "nAsc", table.wallAsc,
+                "nDesc", table.wallDesc,
+                "nFirstAsc", table.wallFirstAsc,
+                "nFirstDesc", table.wallFirstDesc,
+                "bShow", 1,
+                "nOpenIndex", table.wallOpenIndex);
     }
 
     private Map<String, Object> markerPayload() {

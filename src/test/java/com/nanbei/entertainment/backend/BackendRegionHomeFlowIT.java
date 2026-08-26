@@ -154,6 +154,10 @@ class BackendRegionHomeFlowIT extends BackendFlowTestSupport {
                 .isEqualTo(900023L);
         assertThat(home.path("entries").isArray()).isTrue();
         assertThat(home.path("entries").size()).isGreaterThan(10);
+        assertThat(home.path("announcements").isArray()).isTrue();
+        assertThat(home.path("announcements").size()).isEqualTo(1);
+        assertThat(home.path("announcements").get(0).path("content").asText())
+                .isEqualTo("游戏公告:适当游戏益脑，沉迷游戏伤身");
 
         HttpResponse<String> selected =
                 put(

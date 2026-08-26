@@ -7,6 +7,7 @@ import com.nanbei.entertainment.backend.gamehome.domain.PlayerWalletEntity;
 import com.nanbei.entertainment.backend.gamehome.infrastructure.PlayerWalletRepository;
 import com.nanbei.entertainment.backend.shop.domain.ShopProductEntity;
 import com.nanbei.entertainment.backend.shop.infrastructure.ShopProductRepository;
+import com.nanbei.entertainment.backend.shop.infrastructure.ShopPurchaseRecordRepository;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -18,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class ShopCatalogServiceTest {
     @Mock ShopProductRepository productRepository;
+    @Mock ShopPurchaseRecordRepository purchaseRepository;
     @Mock PlayerWalletRepository walletRepository;
 
     @Test
@@ -41,7 +43,8 @@ class ShopCatalogServiceTest {
         when(walletRepository.findById(userId)).thenReturn(Optional.of(wallet));
 
         ShopCatalogResponse response =
-                new ShopCatalogService(productRepository, walletRepository).load(userId);
+                new ShopCatalogService(productRepository, purchaseRepository, walletRepository)
+                        .load(userId);
 
         assertThat(response.products()).hasSize(1);
         assertThat(response.products().get(0).category()).isEqualTo("room_card");

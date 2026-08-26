@@ -121,7 +121,7 @@ final class QaTaizhouProjection {
                 Map.of(
                         "goldMode", context.goldMode(),
                         "choiceActive", !QaRoundFlowAdvance.allMultipleChoicesMade(context, table),
-                        "baseScore", 60,
+                        "baseScore", table.baseScore,
                         "currentMultiplier", 1,
                         "cardUseCount", 1,
                         "diamondUseCount", 50,
@@ -216,7 +216,7 @@ final class QaTaizhouProjection {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("seat", seat);
         payload.put("activeSeat", seat);
-        payload.put("clockRemainingSeconds", QaRoundClock.DEFAULT_SECONDS);
+        payload.put("clockRemainingSeconds", QaRoundClock.TURN_SECONDS);
         payload.put("powerMask", offer.powerMask);
         payload.put("actionToken", offer.actionToken);
         payload.put("contextTile", offer.contextTile);
@@ -388,11 +388,10 @@ final class QaTaizhouProjection {
 
     private static int danFangTile(QaRoundTable table) {
         if (table.outcome == null
-                || table.outcome.discarderSeat() == null
-                || table.lastDiscard == null) {
+                || table.outcome.discarderSeat() == null) {
             return 0;
         }
-        return table.lastDiscard.tile();
+        return table.outcome.winningTile() == null ? 0 : table.outcome.winningTile();
     }
 
     static int endPlayerStateValue(String endState) {

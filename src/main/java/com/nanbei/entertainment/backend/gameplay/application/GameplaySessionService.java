@@ -21,12 +21,14 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 @Service
 public class GameplaySessionService {
@@ -140,7 +142,7 @@ public class GameplaySessionService {
                                 () -> new ApiException(ErrorCode.ROOM_NOT_FOUND, "房间不存在"));
         requireSupported(room);
         if (room.getStatus() == RoomStatus.DISSOLVED) {
-            throw new ApiException(ErrorCode.ROOM_ILLEGAL_STATE, "已解散房间不能进入牌局");
+            return dissolvedSnapshot(room);
         }
         GameSessionEntity session =
                 sessionRepository
@@ -153,31 +155,76 @@ public class GameplaySessionService {
         return snapshot(session, room, userId, synchronizeSeats(room, session));
     }
 
+    /**
+     * 已解散房间的快照：客户端匹配轮询靠 phase=DISSOLVED 撤下等待页（对应原版房散通知），
+     * 不能抛 ROOM_ILLEGAL_STATE 把轮询打成无限重试；也不再增删座位或校验房主座位，
+     * 座位列表置空、mySeat 给范围内占位值。
+     */
+    private GameplaySnapshot dissolvedSnapshot(GameRoomEntity room) {
+        GameSessionEntity session =
+                sessionRepository.findByRoomId(room.getId()).orElse(null);
+        return new GameplaySnapshot(
+                session == null ? null : session.getId(),
+                room.getRoomNumber(),
+                room.getGameId(),
+                com.nanbei.entertainment.backend.gameplay.domain.GamePhase.DISSOLVED,
+                session == null ? 0 : session.getRoundNumber(),
+                session == null ? 0 : session.getRevision(),
+                room.getPlayerCount(),
+                room.getPlayCount(),
+                room.getGameRuleDisplay(),
+                false,
+                1,
+                List.of(),
+                room.getClosedAt() != null ? room.getClosedAt() : room.getCreatedAt());
+    }
+
     private List<GameSessionSeatEntity> synchronizeSeats(
             GameRoomEntity room, GameSessionEntity session) {
         List<UUID> participantIds = orderedParticipantIds(room);
         List<GameSessionSeatEntity> current = new ArrayList<>(seats(session.getId()));
+        if (session.getPhase()
+                == com.nanbei.entertainment.backend.gameplay.domain.GamePhase.WAITING) {
+            List<GameSessionSeatEntity> staleSeats =
+                    current.stream()
+                            .filter(seat -> !participantIds.contains(seat.getUserId()))
+                            .toList();
+            if (!staleSeats.isEmpty()) {
+                seatRepository.deleteAll(staleSeats);
+                seatRepository.flush();
+                current.removeAll(staleSeats);
+            }
+        }
         List<UUID> seatedUserIds = current.stream().map(GameSessionSeatEntity::getUserId).toList();
-        int nextSeat =
-                current.stream()
-                                .mapToInt(seat -> seat.getId().getSeatNumber())
-                                .max()
-                                .orElse(0)
-                        + 1;
         List<GameSessionSeatEntity> additions = new ArrayList<>();
         for (UUID participantId : participantIds) {
             if (!seatedUserIds.contains(participantId)) {
-                additions.add(
+                GameSessionSeatEntity addition =
                         new GameSessionSeatEntity(
-                                session.getId(), nextSeat++, participantId, clock.instant()));
+                                session.getId(),
+                                firstVacantSeat(current, room.getPlayerCount()),
+                                participantId,
+                                clock.instant());
+                additions.add(addition);
+                current.add(addition);
             }
         }
         if (!additions.isEmpty()) {
             seatRepository.saveAll(additions);
-            current.addAll(additions);
             current.sort(Comparator.comparingInt(seat -> seat.getId().getSeatNumber()));
         }
         return current;
+    }
+
+    private static int firstVacantSeat(
+            List<GameSessionSeatEntity> seats, int playerCount) {
+        for (int seatNumber = 1; seatNumber <= playerCount; seatNumber++) {
+            int candidate = seatNumber;
+            if (seats.stream().noneMatch(seat -> seat.getId().getSeatNumber() == candidate)) {
+                return seatNumber;
+            }
+        }
+        throw new ApiException(ErrorCode.ROOM_ILLEGAL_STATE, "房间座位数据不合法");
     }
 
     private List<UUID> orderedParticipantIds(GameRoomEntity room) {
@@ -237,6 +284,8 @@ public class GameplaySessionService {
                 session.getId(),
                 room.getRoomNumber(),
                 session.getGameId(),
+                room.getRoomMode(),
+                room.getVenue() == null ? "" : room.getVenue().name(),
                 session.getPhase(),
                 session.getRoundNumber(),
                 session.getRevision(),
@@ -249,9 +298,9 @@ public class GameplaySessionService {
                 seatScopedStateField(state, "visibleRoundsBySeat", mySeat),
                 seatScopedStateField(state, "playPermissionsBySeat", mySeat),
                 jsonField(state, "settlement"),
-                jsonField(state, "multipleChoice"),
+                viewerMultipleChoice(state, mySeat),
                 optionalIntegerField(state, "activeSeat"),
-                optionalIntegerField(state, "clockRemainingSeconds"),
+                countdownSeconds(state, clock.instant()),
                 integerField(state, "remainingWallCount", -1),
                 seatScopedStateField(state, "actionOffersBySeat", mySeat),
                 jsonField(state, "melds"),
@@ -271,6 +320,26 @@ public class GameplaySessionService {
         }
     }
 
+    private static Integer countdownSeconds(JsonNode state, Instant now) {
+        Integer configured = optionalIntegerField(state, "clockRemainingSeconds");
+        if (configured == null) {
+            return null;
+        }
+        long offeredAt = Long.MAX_VALUE;
+        JsonNode offers = state.path("qaRound").path("offers");
+        for (Map.Entry<String, JsonNode> entry : offers.properties()) {
+            JsonNode offer = entry.getValue();
+            if (!offer.path("passed").asBoolean() && offer.path("offeredAtEpochMilli").isNumber()) {
+                offeredAt = Math.min(offeredAt, offer.path("offeredAtEpochMilli").asLong());
+            }
+        }
+        if (offeredAt == Long.MAX_VALUE) {
+            return configured;
+        }
+        long elapsedSeconds = Math.max(0L, now.toEpochMilli() - offeredAt) / 1000L;
+        return (int) Math.max(0L, configured - elapsedSeconds);
+    }
+
     private static JsonNode seatScopedStateField(
             JsonNode state, String bySeatField, int mySeat) {
         JsonNode bySeat = jsonField(state, bySeatField);
@@ -278,6 +347,16 @@ public class GameplaySessionService {
             return null;
         }
         return jsonField(bySeat, Integer.toString(mySeat));
+    }
+
+    private static JsonNode viewerMultipleChoice(JsonNode state, int mySeat) {
+        JsonNode multipleChoice = jsonField(state, "multipleChoice");
+        if (!(multipleChoice instanceof ObjectNode)) {
+            return multipleChoice;
+        }
+        ObjectNode scoped = (ObjectNode) multipleChoice.deepCopy();
+        scoped.put("mySeat", mySeat);
+        return scoped;
     }
 
     private static JsonNode jsonField(JsonNode state, String fieldName) {

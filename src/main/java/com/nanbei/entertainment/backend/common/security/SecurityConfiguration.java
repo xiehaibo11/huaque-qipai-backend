@@ -1,9 +1,11 @@
 package com.nanbei.entertainment.backend.common.security;
 
 import com.nanbei.entertainment.backend.common.config.SecurityProperties;
+import com.nanbei.entertainment.backend.user.infrastructure.UserRepository;
 import java.nio.charset.StandardCharsets;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -12,20 +14,34 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
 public class SecurityConfiguration {
     @Bean
-    JwtDecoder jwtDecoder(SecurityProperties properties) {
+    JwtDecoder jwtDecoder(
+            SecurityProperties properties,
+            ObjectProvider<UserRepository> userRepositories) {
         SecretKey key =
                 new SecretKeySpec(
                         properties.jwtSecret().getBytes(StandardCharsets.UTF_8),
                         "HmacSHA256");
-        return NimbusJwtDecoder.withSecretKey(key)
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(key)
                 .macAlgorithm(MacAlgorithm.HS256)
                 .build();
+        UserRepository userRepository = userRepositories.getIfAvailable();
+        if (userRepository == null) {
+            decoder.setJwtValidator(JwtValidators.createDefault());
+        } else {
+            decoder.setJwtValidator(
+                    new DelegatingOAuth2TokenValidator<>(
+                            JwtValidators.createDefault(),
+                            new ActiveUserJwtValidator(userRepository)));
+        }
+        return decoder;
     }
 
     @Bean
@@ -47,7 +63,8 @@ public class SecurityConfiguration {
                                         .permitAll()
                                         .requestMatchers(
                                                 HttpMethod.GET,
-                                                "/api/v1/regions")
+                                                "/api/v1/regions",
+                                                "/api/v1/public/login-agreements")
                                         .permitAll()
                                         .requestMatchers("/api/v1/**")
                                         .authenticated()

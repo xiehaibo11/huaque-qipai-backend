@@ -103,6 +103,25 @@ class QaTaizhouScorerTest {
                 .containsEntry(4, 4L);
     }
 
+    @Test
+    void dealerSeatIsEastForDoorWindScoringRegardlessOfItsAbsoluteSeatNumber() {
+        QaRoundTable table = QaRoundTable.newRound(4, 3, 1, Set.of());
+        table.hands()
+                .get(3)
+                .addAll(
+                        List.of(
+                                0x11, 0x11, 0x11,
+                                0x23, 0x24, 0x25,
+                                0x31, 0x32, 0x33,
+                                0x41, 0x41, 0x41,
+                                0x26, 0x26));
+
+        QaTaizhouScorer.SeatScore winner =
+                QaTaizhouScorer.score(table, 3, "ZIMO", null).seatScores().get(3);
+
+        assertThat(winner.tai()).isEqualTo(2);
+    }
+
     private static QaRoundTable table() {
         return QaRoundTable.newRound(4, 1, 1, Set.of());
     }

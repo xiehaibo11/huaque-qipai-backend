@@ -77,13 +77,28 @@ class BackendGoldRoomJoinFlowIT extends RoomFlowTestSupport {
                 .isEqualTo(200);
         JsonNode snapshot = json(snapshotResponse.body());
         assertThat(snapshot.path("phase").asText()).isEqualTo("DEALING");
+        assertThat(snapshot.path("gameId").asLong()).isEqualTo(30109L);
+        assertThat(snapshot.path("roomMode").asInt()).isEqualTo(50);
+        assertThat(snapshot.path("roomVenue").asText()).isEqualTo("GOLD");
         assertThat(snapshot.path("seats")).hasSize(4);
         assertThat(snapshot.path("seats").get(1).path("displayName").asText())
+                .doesNotContainIgnoringCase("AI")
+                .doesNotContain("机器人")
                 .doesNotContain("测试")
                 .doesNotContain("假人")
                 .doesNotContain("机用户");
+        assertThat(snapshot.path("seats").get(0).path("score").asLong()).isEqualTo(1_000_000L);
+        assertThat(snapshot.path("seats").get(1).path("score").asLong()).isEqualTo(50_000L);
+        assertThat(snapshot.path("seats").get(2).path("score").asLong()).isEqualTo(50_000L);
+        assertThat(snapshot.path("seats").get(3).path("score").asLong()).isEqualTo(50_000L);
         assertThat(snapshot.path("multipleChoice").path("choiceActive").asBoolean()).isTrue();
         assertThat(snapshot.path("multipleChoice").path("goldMode").asBoolean()).isTrue();
+        assertThat(snapshot.path("multipleChoice").path("seatChoices").get(1).path("choice").asText())
+                .isEqualTo("DEFAULT");
+        assertThat(snapshot.path("multipleChoice").path("seatChoices").get(2).path("choice").asText())
+                .isEqualTo("SUPER");
+        assertThat(snapshot.path("multipleChoice").path("seatChoices").get(3).path("choice").asText())
+                .isEqualTo("PASS");
         assertThat(snapshot.path("visibleRound").path("hands")).hasSize(4);
         assertThat(snapshot.path("visibleRound").path("hands").get(0).path("concealedTiles")).isEmpty();
         assertThat(snapshot.has("settlement")).isFalse();

@@ -18,6 +18,7 @@ public record GoldLevelView(
         boolean dynamicCost,
         long minRich,
         long maxRich,
+        long onlineCount,
         String tagLeftTop,
         String tagRightTop,
         String tagRibbon1,
@@ -32,7 +33,7 @@ public record GoldLevelView(
         return uiType < 1 ? 1 : uiType;
     }
 
-    public static GoldLevelView from(GoldGameLevelEntity entity) {
+    public static GoldLevelView from(GoldGameLevelEntity entity, long onlineCount) {
         int flag = entity.getId().getRoomNameFlag();
         return new GoldLevelView(
                 flag,
@@ -42,6 +43,7 @@ public record GoldLevelView(
                 entity.isDynamicCost(),
                 entity.getMinRich(),
                 entity.getMaxRich(),
+                onlineCount,
                 entity.getTagLeftTop(),
                 entity.getTagRightTop(),
                 entity.getTagRibbon1(),

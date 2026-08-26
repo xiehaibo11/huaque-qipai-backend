@@ -31,6 +31,7 @@ final class QaRoundNodePayloads {
         node.put("claimKind", offer.claimKind == null ? null : offer.claimKind.name());
         node.put("candidateIndex", offer.candidateIndex);
         node.put("passed", offer.passed);
+        node.put("offeredAtEpochMilli", offer.offeredAtEpochMilli);
         return node;
     }
 
@@ -67,6 +68,9 @@ final class QaRoundNodePayloads {
             offer.candidateIndex = node.path("candidateIndex").asInt();
         }
         offer.passed = node.path("passed").asBoolean();
+        if (node.path("offeredAtEpochMilli").isNumber()) {
+            offer.offeredAtEpochMilli = node.path("offeredAtEpochMilli").asLong();
+        }
         return offer;
     }
 

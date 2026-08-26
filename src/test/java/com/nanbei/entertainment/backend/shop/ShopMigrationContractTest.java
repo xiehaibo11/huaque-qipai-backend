@@ -64,5 +64,46 @@ class ShopMigrationContractTest {
                         "'ROOM_CARD'",
                         "'DIAMOND'",
                         "'recorder'");
+
+        Path vehicleMigration =
+                Path.of(
+                        "src/main/resources/db/migration/"
+                                + "V43__shop_exclusive_vehicles.sql");
+        String vehicleSql =
+                new String(
+                        Files.readAllBytes(vehicleMigration),
+                        StandardCharsets.UTF_8);
+        assertThat(vehicleSql)
+                .contains(
+                        "'DECORATION_VEHICLE_150801'",
+                        "'DECORATION_VEHICLE_150816'",
+                        "'enterani'",
+                        "'vehicle_150801'",
+                        "'二八大杠7天'",
+                        "'越野家7天'",
+                        "'DIAMOND'",
+                        "'DECORATION_PROP'",
+                        "'PROP_RQDH_150801'",
+                        "'PROP_RQDH_150816'");
+
+        Path chatVoiceMigration =
+                Path.of(
+                        "src/main/resources/db/migration/"
+                                + "V46__shop_chat_voice.sql");
+        String chatVoiceSql =
+                new String(
+                        Files.readAllBytes(chatVoiceMigration),
+                        StandardCharsets.UTF_8);
+        assertThat(chatVoiceSql)
+                .contains(
+                        "section = 'prop_emoji'",
+                        "'CHAT_VOICE_XIAOGU_1_DAY'",
+                        "'interaction'",
+                        "'yuyin'",
+                        "'小谷专属语音包1天'",
+                        "'voice'",
+                        "'DIAMOND'",
+                        "'INTERACTION_PROP'",
+                        "'PROP_CHAT_VOICE_120404'");
     }
 }

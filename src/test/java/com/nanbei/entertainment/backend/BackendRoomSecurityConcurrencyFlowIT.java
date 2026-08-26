@@ -22,6 +22,7 @@ import tools.jackson.databind.JsonNode;
 class BackendRoomSecurityConcurrencyFlowIT extends RoomFlowTestSupport {
     @Test
     void requiresAuthenticationForEveryRoomEndpoint() throws Exception {
+        assertThat(get("/api/v1/rooms/current", null).statusCode()).isEqualTo(401);
         assertThat(
                         get(
                                         "/api/v1/rooms/rule-config?lobbyId=900038&gameId=30588",
@@ -39,6 +40,8 @@ class BackendRoomSecurityConcurrencyFlowIT extends RoomFlowTestSupport {
                 .isEqualTo(401);
         assertThat(get("/api/v1/rooms/123456", null).statusCode()).isEqualTo(401);
         assertThat(post("/api/v1/rooms/123456/join", "{}", null, null, null).statusCode())
+                .isEqualTo(401);
+        assertThat(post("/api/v1/rooms/123456/leave", "{}", null, null, null).statusCode())
                 .isEqualTo(401);
         assertThat(
                         post(

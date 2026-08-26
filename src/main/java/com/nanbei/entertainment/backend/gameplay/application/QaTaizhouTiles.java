@@ -1,10 +1,8 @@
 package com.nanbei.entertainment.backend.gameplay.application;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.Random;
 
 /**
  * 南北自建 QA 牌值与牌墙工具，非原版服务端算法。
@@ -92,13 +90,21 @@ final class QaTaizhouTiles {
      * 南北自建 QA 牌墙：136 张基础牌、无花牌，用请求确定性 seed 洗牌。
      */
     static List<Integer> buildWall(long seed) {
+        return TaizhouWallShuffle.deterministic(seed).wall();
+    }
+
+    /** 生产权威牌局使用不可由房间元数据推导的 256 位密码学安全随机种子。 */
+    static List<Integer> buildSecureWall() {
+        return TaizhouWallShuffle.secure().wall();
+    }
+
+    static List<Integer> orderedWall() {
         List<Integer> wall = new ArrayList<>(WALL_SIZE);
         for (int tile : baseTiles()) {
             for (int copy = 0; copy < 4; copy++) {
                 wall.add(tile);
             }
         }
-        Collections.shuffle(wall, new Random(seed));
         return wall;
     }
 

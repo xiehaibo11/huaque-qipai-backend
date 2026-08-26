@@ -18,8 +18,6 @@ import java.util.Set;
  * NEXT_ROUND 的"任何座位成员可发起"是南北自建简化，原版多局流转无服务端证据。
  */
 final class QaRoundFlowAdvance {
-    /** 自建：开局生牌数（对齐 TableInfo 展示语义，非原版服务端下发值）。 */
-    static final int INITIAL_SHENG_PAI_COUNT = 22;
     /** 自建：总盘局数（对齐原版房间 maxPlayCount 8 的默认档）。 */
     static final int TOTAL_BANKER_ROUNDS = 8;
 
@@ -38,25 +36,41 @@ final class QaRoundFlowAdvance {
     QaRoundTable openRound(
             QaRoundContext context,
             int roundNumber,
+            int maxPlayCount,
             int dealerSeat,
             Set<Integer> botSeats,
+            QaTaizhouTotalResult totalResult,
             List<Integer> wall,
+            boolean physicalWallOpening,
+            String shuffleAlgorithm,
+            String shuffleSeedSource,
+            String shuffleCommitment,
             long revision,
             List<GameEvent> events) {
         QaRoundTable table =
-                QaRoundTable.newRound(context.chairCount(), dealerSeat, roundNumber, botSeats);
-        table.shengPaiCount = INITIAL_SHENG_PAI_COUNT;
-        table.leftBankerCount = Math.max(0, TOTAL_BANKER_ROUNDS - roundNumber + 1);
+                QaRoundTable.newRound(
+                        context.chairCount(), dealerSeat, roundNumber, maxPlayCount, botSeats);
+        table.baseScore = context.baseScore();
+        table.goldMode = context.goldMode();
+        for (QaMahjongAutoRoundEngine.SeatInput seat : context.seats()) {
+            table.openingCoinsBySeat.put(seat.seatNumber(), Math.max(0L, seat.score()));
+        }
+        table.totalResult = totalResult;
+        table.leftBankerCount = Math.max(0, maxPlayCount - roundNumber + 1);
         int wallSize = wall.size();
         table.wall.addAll(wall);
+        table.shuffleAlgorithm = shuffleAlgorithm;
+        table.shuffleSeedSource = shuffleSeedSource;
+        table.shuffleCommitment = shuffleCommitment;
+        table.physicalWallOpening = physicalWallOpening;
         table.stage = QaRoundTable.Stage.AWAIT_MULTIPLE;
         for (int seat : botSeats) {
-            table.choices().put(seat, "NONE");
+            table.choices().put(seat, botMultipleChoice(seat));
         }
         if (!botSeats.isEmpty()) {
             events.add(eventFactory.botSeatsFilled(revision, context, QaTaizhouRoundEngine.BOT_POOL_SIZE));
         }
-        events.add(eventFactory.wallShuffled(revision, wallSize, table.wall.size()));
+        events.add(eventFactory.wallShuffled(revision, table, wallSize));
         events.add(eventFactory.multipleChoiceStarted(revision, context, table));
         if (allMultipleChoicesMade(context, table)) {
             dealAfterMultipleChoice(context, table, revision, events);
@@ -64,9 +78,17 @@ final class QaRoundFlowAdvance {
         return table;
     }
 
+    private static String botMultipleChoice(int seat) {
+        return switch (Math.floorMod(seat - 1, 3)) {
+            case 1 -> "DEFAULT";
+            case 2 -> "SUPER";
+            default -> "PASS";
+        };
+    }
+
     /**
-     * 加倍选择完成后继续开局：掷骰 → LEFT_BANKER → 发牌 → 首个 SHENG_PAI_COUNT → 庄家出牌权。
-     * 掷骰字段对齐原版 msgThrowChip 形状；数值为南北自建确定性派生。
+     * 加倍选择完成后继续开局：定位骰 → 开墙骰 → 翻财神 → LEFT_BANKER → 发牌 →
+     * 首个 SHENG_PAI_COUNT → 庄家出牌权。骰子字段对齐原版 msgThrowChip 形状。
      * 首个 SHENG_PAI_COUNT 在发牌后发出，值为 22；起手发牌不扣生牌数。
      */
     void dealAfterMultipleChoice(
@@ -74,8 +96,23 @@ final class QaRoundFlowAdvance {
         if (table.stage != QaRoundTable.Stage.AWAIT_MULTIPLE) {
             throw new IllegalStateException("table is not waiting for multiple choices");
         }
-        table.diceRoll = diceRoll(context, table);
+        QaRoundTable.DiceRoll firstDice = firstDiceRoll(context, table);
+        table.diceRoll = firstDice;
         events.add(eventFactory.diceRolled(revision, table));
+        QaRoundTable.DiceRoll secondDice = secondDiceRoll(context, table, firstDice);
+        table.diceRoll = secondDice;
+        events.add(eventFactory.diceRolled(revision, table));
+        if (table.physicalWallOpening
+                && table.wall.size() == QaTaizhouWallOpening.WALL_SIZE) {
+            QaTaizhouWallOpening opening =
+                    QaTaizhouWallOpening.fromDice(
+                            table.dealerSeat, firstDice.values(), secondDice.values());
+            table.openWall(opening);
+            events.add(eventFactory.wallOpened(revision, table));
+        } else {
+            // 单元测试可注入短墙验证流局；生产建墙固定 136 张，永远走物理开墙分支。
+            table.revealJoker();
+        }
         // 台州大众玩法：庄家起手 14 张、闲家 13 张；起手发牌不扣生牌数。
         for (int deal = 0; deal < 13; deal++) {
             for (int seat = 1; seat <= context.chairCount(); seat++) {
@@ -84,11 +121,11 @@ final class QaRoundFlowAdvance {
         }
         int dealerTile = table.drawFromWall();
         table.hands().get(table.dealerSeat).add(dealerTile);
+        table.markDrawnTile(table.dealerSeat, dealerTile);
         table.stage = QaRoundTable.Stage.AWAIT_PLAY;
         events.add(eventFactory.leftBanker(revision, table.leftBankerCount));
         events.addAll(eventFactory.dealt(revision, context, table));
         table.diceRoll = null;
-        events.add(eventFactory.shengPaiCount(revision, table.shengPaiCount));
         if (table.isBot(table.dealerSeat)) {
             events.add(eventFactory.turnAdvanced(revision, table));
         }
@@ -108,8 +145,12 @@ final class QaRoundFlowAdvance {
         if (previous.outcome == null) {
             throw new ApiException(ErrorCode.GAME_ACTION_NOT_ALLOWED, "当前牌局尚未结束");
         }
-        List<Integer> wall =
-                QaTaizhouTiles.buildWall(
+        if (previous.roundNumber >= previous.maxPlayCount) {
+            throw new ApiException(
+                    ErrorCode.GAME_ACTION_NOT_ALLOWED, "已达最大局数，不能继续开局");
+        }
+        TaizhouWallShuffle.Result shuffle =
+                engine.buildShuffle(
                         QaTaizhouTiles.seed(
                                 context.roomNumber(),
                                 revision - 1,
@@ -122,9 +163,15 @@ final class QaRoundFlowAdvance {
                 openRound(
                         context,
                         previous.roundNumber + 1,
-                        previous.dealerSeat,
+                        previous.maxPlayCount,
+                        nextDealerSeat(previous),
                         previous.botSeats,
-                        wall,
+                        previous.totalResult,
+                        shuffle.wall(),
+                        true,
+                        shuffle.algorithm(),
+                        shuffle.seedSource(),
+                        shuffle.commitment(),
                         revision,
                         events);
         engine.advance(table, context, revision, events);
@@ -133,6 +180,12 @@ final class QaRoundFlowAdvance {
                 QaTaizhouRoundEngine.deltas(table),
                 table.outcome != null,
                 table);
+    }
+
+    static int nextDealerSeat(QaRoundTable previous) {
+        return previous.outcome.winnerSeat() == previous.dealerSeat
+                ? previous.dealerSeat
+                : previous.nextSeat(previous.dealerSeat);
     }
 
     static boolean allMultipleChoicesMade(QaRoundContext context, QaRoundTable table) {
@@ -144,7 +197,8 @@ final class QaRoundFlowAdvance {
         return true;
     }
 
-    private static QaRoundTable.DiceRoll diceRoll(QaRoundContext context, QaRoundTable table) {
+    private static QaRoundTable.DiceRoll firstDiceRoll(
+            QaRoundContext context, QaRoundTable table) {
         int first =
                 Math.floorMod(
                                 Objects.hash(
@@ -164,5 +218,32 @@ final class QaRoundFlowAdvance {
                                 6)
                         + 1;
         return new QaRoundTable.DiceRoll(table.dealerSeat, List.of(first, second), 4, true);
+    }
+
+    private static QaRoundTable.DiceRoll secondDiceRoll(
+            QaRoundContext context, QaRoundTable table, QaRoundTable.DiceRoll firstDice) {
+        int first =
+                Math.floorMod(
+                                Objects.hash(
+                                        context.roomNumber(),
+                                        table.roundNumber,
+                                        table.dealerSeat,
+                                        table.wall.hashCode(),
+                                        "OPEN_WALL_FIRST"),
+                                6)
+                        + 1;
+        int second =
+                Math.floorMod(
+                                Objects.hash(
+                                        context.roomNumber(),
+                                        table.roundNumber,
+                                        table.dealerSeat,
+                                        table.wall.size(),
+                                        "OPEN_WALL_SECOND"),
+                                6)
+                        + 1;
+        int firstTotal = firstDice.values().get(0) + firstDice.values().get(1);
+        int secondSeat = Math.floorMod(table.dealerSeat - 1 + firstTotal - 1, 4) + 1;
+        return new QaRoundTable.DiceRoll(secondSeat, List.of(first, second), 5, true);
     }
 }

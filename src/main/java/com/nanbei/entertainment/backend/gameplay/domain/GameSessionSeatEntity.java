@@ -38,8 +38,21 @@ public class GameSessionSeatEntity {
 
     public GameSessionSeatEntity(
             UUID sessionId, int seatNumber, UUID userId, Instant occurredAt) {
+        this(sessionId, seatNumber, userId, 1000L, occurredAt);
+    }
+
+    public GameSessionSeatEntity(
+            UUID sessionId,
+            int seatNumber,
+            UUID userId,
+            long initialScore,
+            Instant occurredAt) {
+        if (initialScore < 0) {
+            throw new IllegalArgumentException("initialScore must not be negative");
+        }
         this.id = new GameSessionSeatId(sessionId, seatNumber);
         this.userId = Objects.requireNonNull(userId, "userId");
+        this.score = initialScore;
         this.createdAt = Objects.requireNonNull(occurredAt, "occurredAt");
         this.updatedAt = occurredAt;
     }
@@ -57,6 +70,18 @@ public class GameSessionSeatEntity {
 
     public void applyScoreDelta(long delta, Instant occurredAt) {
         score = Math.addExact(score, delta);
+        updatedAt = Objects.requireNonNull(occurredAt, "occurredAt");
+    }
+
+    public void replaceOccupant(UUID nextUserId, long initialScore, Instant occurredAt) {
+        if (initialScore < 0) {
+            throw new IllegalArgumentException("initialScore must not be negative");
+        }
+        userId = Objects.requireNonNull(nextUserId, "nextUserId");
+        score = initialScore;
+        ready = true;
+        connected = true;
+        lastAckRevision = 0L;
         updatedAt = Objects.requireNonNull(occurredAt, "occurredAt");
     }
 

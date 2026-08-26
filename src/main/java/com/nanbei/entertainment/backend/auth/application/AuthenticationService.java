@@ -4,6 +4,7 @@ import com.nanbei.entertainment.backend.auth.domain.OtpChallengeEntity;
 import com.nanbei.entertainment.backend.auth.domain.RefreshTokenEntity;
 import com.nanbei.entertainment.backend.auth.infrastructure.OtpChallengeRepository;
 import com.nanbei.entertainment.backend.auth.infrastructure.RefreshTokenRepository;
+import com.nanbei.entertainment.backend.avatar.application.AvatarService;
 import com.nanbei.entertainment.backend.common.config.AuthProperties;
 import com.nanbei.entertainment.backend.common.config.SecurityProperties;
 import com.nanbei.entertainment.backend.common.crypto.CryptoService;
@@ -13,8 +14,6 @@ import com.nanbei.entertainment.backend.common.security.JwtTokenService;
 import com.nanbei.entertainment.backend.friend.application.FriendPresenceService;
 import com.nanbei.entertainment.backend.user.domain.IdentityProvider;
 import com.nanbei.entertainment.backend.user.domain.UserEntity;
-import com.nanbei.entertainment.backend.user.domain.UserIdentityEntity;
-import com.nanbei.entertainment.backend.user.infrastructure.UserIdentityRepository;
 import com.nanbei.entertainment.backend.user.infrastructure.UserRepository;
 import java.time.Instant;
 import java.util.List;
@@ -34,9 +33,10 @@ public class AuthenticationService {
     private final OtpChallengeRepository otpRepository;
     private final RefreshTokenRepository refreshRepository;
     private final UserRepository userRepository;
-    private final UserIdentityRepository identityRepository;
     private final List<ExternalIdentityVerifier> externalVerifiers;
+    private final ExternalIdentityAccountResolver externalAccountResolver;
     private final FriendPresenceService friendPresenceService;
+    private final AvatarService avatarService;
 
     public AuthenticationService(
             AuthProperties authProperties,
@@ -49,9 +49,10 @@ public class AuthenticationService {
             OtpChallengeRepository otpRepository,
             RefreshTokenRepository refreshRepository,
             UserRepository userRepository,
-            UserIdentityRepository identityRepository,
             List<ExternalIdentityVerifier> externalVerifiers,
-            FriendPresenceService friendPresenceService) {
+            ExternalIdentityAccountResolver externalAccountResolver,
+            FriendPresenceService friendPresenceService,
+            AvatarService avatarService) {
         this.authProperties = authProperties;
         this.securityProperties = securityProperties;
         this.cryptoService = cryptoService;
@@ -62,9 +63,10 @@ public class AuthenticationService {
         this.otpRepository = otpRepository;
         this.refreshRepository = refreshRepository;
         this.userRepository = userRepository;
-        this.identityRepository = identityRepository;
         this.externalVerifiers = externalVerifiers;
+        this.externalAccountResolver = externalAccountResolver;
         this.friendPresenceService = friendPresenceService;
+        this.avatarService = avatarService;
     }
 
     @Transactional
@@ -90,8 +92,8 @@ public class AuthenticationService {
         String phoneNumber = MainlandPhoneNumber.parse(rawPhoneNumber).value();
         OtpChallengeEntity challenge =
                 otpRepository
-                        .findFirstByPhoneNumberAndConsumedAtIsNullOrderByCreatedAtDesc(
-                                phoneNumber)
+                        .findFirstByPhoneNumberAndPurposeAndConsumedAtIsNullOrderByCreatedAtDesc(
+                                phoneNumber, "LOGIN")
                         .orElseThrow(
                                 () ->
                                         new ApiException(
@@ -101,7 +103,7 @@ public class AuthenticationService {
                 cryptoService.sha256(phoneNumber + ":" + code),
                 Instant.now());
         UserEntity user =
-                findOrCreateUser(
+                externalAccountResolver.resolveSimple(
                         IdentityProvider.PHONE,
                         phoneNumber,
                         phoneNumber,
@@ -128,13 +130,9 @@ public class AuthenticationService {
                                                 provider + " 适配器不存在"));
         ExternalIdentity identity = verifier.verify(provider, credential);
         UserEntity user =
-                findOrCreateUser(
-                        provider,
-                        identity.subject(),
-                        null,
-                        provider == IdentityProvider.WECHAT
-                                ? "微信用户"
-                                : "一键登录用户");
+                externalAccountResolver.resolve(
+                        identity, defaultDisplayName(provider, identity));
+        synchronizeExternalProfile(user, identity);
         friendPresenceService.touch(user.getId());
         return issueTokenPair(user, UUID.randomUUID());
     }
@@ -142,7 +140,7 @@ public class AuthenticationService {
     @Transactional
     public TokenPair loginLocalDeveloper() {
         UserEntity user =
-                findOrCreateUser(
+                externalAccountResolver.resolveSimple(
                         IdentityProvider.DEVELOPER,
                         "local-debug-developer",
                         null,
@@ -154,10 +152,19 @@ public class AuthenticationService {
     @Transactional(noRollbackFor = ApiException.class)
     public TokenPair refresh(String rawRefreshToken) {
         Instant now = Instant.now();
+        String tokenHash = cryptoService.sha256(rawRefreshToken);
+        UUID userId =
+                refreshRepository
+                        .findUserIdByTokenHash(tokenHash)
+                        .orElseThrow(
+                                () ->
+                                        new ApiException(
+                                                ErrorCode.AUTH_INVALID_CREDENTIAL,
+                                                "Refresh Token 无效"));
+        acquireSessionLock(userId);
         RefreshTokenEntity current =
                 refreshRepository
-                        .findLockedByTokenHash(
-                                cryptoService.sha256(rawRefreshToken))
+                        .findLockedByTokenHash(tokenHash)
                         .orElseThrow(
                                 () ->
                                         new ApiException(
@@ -197,32 +204,73 @@ public class AuthenticationService {
 
     @Transactional
     public void logout(String rawRefreshToken) {
+        String tokenHash = cryptoService.sha256(rawRefreshToken);
         refreshRepository
-                .findByTokenHash(cryptoService.sha256(rawRefreshToken))
-                .ifPresent(token -> revokeFamily(token.getFamilyId(), Instant.now()));
+                .findUserIdByTokenHash(tokenHash)
+                .ifPresent(
+                        userId -> {
+                            acquireSessionLock(userId);
+                            refreshRepository
+                                    .findLockedByTokenHash(tokenHash)
+                                    .ifPresent(
+                                            token -> {
+                                                revokeFamily(
+                                                        token.getFamilyId(),
+                                                        Instant.now());
+                                                userRepository
+                                                        .findById(token.getUserId())
+                                                        .ifPresent(
+                                                                user -> {
+                                                                    user.invalidateSessions();
+                                                                    userRepository.save(user);
+                                                                });
+                                            });
+                        });
     }
 
-    private UserEntity findOrCreateUser(
-            IdentityProvider provider,
-            String subject,
-            String phoneNumber,
-            String displayName) {
-        return identityRepository
-                .findByProviderAndProviderSubject(provider, subject)
-                .map(UserIdentityEntity::getUser)
-                .orElseGet(
-                        () -> {
-                            UserEntity user =
-                                    userRepository.save(UserEntity.create(displayName));
-                            identityRepository.save(
-                                    new UserIdentityEntity(
-                                            user, provider, subject, phoneNumber));
-                            return user;
-                        });
+    private void synchronizeExternalProfile(
+            UserEntity user, ExternalIdentity identity) {
+        if (identity.displayName() != null
+                && !identity.displayName().isBlank()) {
+            if (identity.provider() == IdentityProvider.WECHAT) {
+                user.renameFromWechat(identity.displayName().trim());
+            } else {
+                user.rename(identity.displayName().trim());
+            }
+            userRepository.save(user);
+        }
+        if (identity.avatarBytes() != null
+                && identity.avatarBytes().length > 0
+                && identity.avatarContentType() != null
+                && !identity.avatarContentType().isBlank()) {
+            if (identity.provider() == IdentityProvider.WECHAT) {
+                avatarService.saveFromWechat(
+                        user.getId(),
+                        identity.avatarBytes(),
+                        identity.avatarContentType());
+            } else {
+                avatarService.save(
+                        user.getId(),
+                        identity.avatarBytes(),
+                        identity.avatarContentType());
+            }
+        }
+    }
+
+    private static String defaultDisplayName(
+            IdentityProvider provider, ExternalIdentity identity) {
+        if (identity.displayName() != null
+                && !identity.displayName().isBlank()) {
+            return identity.displayName().trim();
+        }
+        return provider == IdentityProvider.WECHAT
+                ? "微信用户"
+                : "一键登录用户";
     }
 
     private TokenPair issueTokenPair(UserEntity user, UUID familyId) {
         ensureActive(user);
+        acquireSessionLock(user.getId());
         String rawRefresh = cryptoService.randomToken();
         refreshRepository.save(
                 new RefreshTokenEntity(
@@ -237,9 +285,7 @@ public class AuthenticationService {
     }
 
     private void revokeFamily(UUID familyId, Instant now) {
-        refreshRepository
-                .findByFamilyId(familyId)
-                .forEach(token -> token.revoke(now, null));
+        refreshRepository.findByFamilyId(familyId).forEach(token -> token.revoke(now, null));
     }
 
     private void ensureActive(UserEntity user) {
@@ -248,4 +294,7 @@ public class AuthenticationService {
         }
     }
 
+    private void acquireSessionLock(UUID userId) {
+        refreshRepository.acquireUserSessionLock("auth-session:" + userId);
+    }
 }
