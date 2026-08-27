@@ -8,10 +8,11 @@ import com.nanbei.entertainment.backend.gameplay.infrastructure.GameSessionRepos
 import com.nanbei.entertainment.backend.gameplay.infrastructure.GameSessionSeatRepository;
 import com.nanbei.entertainment.backend.gamehome.application.PlayerProfileService;
 import com.nanbei.entertainment.backend.gamehome.domain.PlayerProfileEntity;
+import com.nanbei.entertainment.backend.room.application.TaizhouMahjongRuleDisplay;
 import com.nanbei.entertainment.backend.room.domain.GameRoomEntity;
 import com.nanbei.entertainment.backend.room.domain.RoomParticipantEntity;
 import com.nanbei.entertainment.backend.room.domain.RoomStatus;
-import com.nanbei.entertainment.backend.room.application.TaizhouMahjongRuleDisplay;
+import com.nanbei.entertainment.backend.room.domain.RoomVenue;
 import com.nanbei.entertainment.backend.room.infrastructure.GameRoomRepository;
 import com.nanbei.entertainment.backend.room.infrastructure.RoomParticipantRepository;
 import com.nanbei.entertainment.backend.user.domain.UserEntity;
@@ -116,6 +117,9 @@ public class GameplaySessionService {
         GameSessionEntity existing = sessionRepository.findByRoomId(room.getId()).orElse(null);
         if (existing != null) {
             return snapshot(existing, room, userId, synchronizeSeats(room, existing));
+        }
+        if (isGoldRoom(room)) {
+            throw new ApiException(ErrorCode.GAMEPLAY_SESSION_NOT_FOUND, "金币场牌局尚未创建");
         }
         requireOwner(userId, room);
 
@@ -236,6 +240,9 @@ public class GameplaySessionService {
             throw new ApiException(ErrorCode.ROOM_ILLEGAL_STATE, "房间座位数据不合法");
         }
         if (!participantIds.contains(room.getOwnerUserId())) {
+            if (isGoldRoom(room)) {
+                return participantIds;
+            }
             throw new ApiException(ErrorCode.ROOM_ILLEGAL_STATE, "房间缺少房主座位");
         }
         List<UUID> ordered = new ArrayList<>(participantIds.size());
@@ -413,5 +420,9 @@ public class GameplaySessionService {
                     ErrorCode.GAMEPLAY_NOT_AVAILABLE,
                     "当前游戏尚未接入服务端牌局引擎");
         }
+    }
+
+    private static boolean isGoldRoom(GameRoomEntity room) {
+        return room.getVenue() == RoomVenue.GOLD || room.getRoomMode() == 50;
     }
 }

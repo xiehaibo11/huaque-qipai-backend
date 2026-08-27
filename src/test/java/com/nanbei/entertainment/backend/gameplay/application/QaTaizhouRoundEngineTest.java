@@ -261,7 +261,7 @@ class QaTaizhouRoundEngineTest {
     }
 
     @Test
-    void botTurnAdvancedCarriesHumanizedPlaybackDelay() {
+    void botTurnAdvancedDoesNotExposeClientPlaybackDelay() {
         QaTaizhouRoundEngine engine = new QaTaizhouRoundEngine(OBJECT_MAPPER);
 
         QaTaizhouRoundResult result =
@@ -272,22 +272,17 @@ class QaTaizhouRoundEngineTest {
                         .filter(event -> event.type().equals("TURN_ADVANCED"))
                         .toList();
         assertThat(turns).isNotEmpty();
-        // QaBotThinkingRhythm 的取值域；下限 700ms 起、上限压在客户端 6000ms 夹取之内。
         assertThat(turns)
                 .allSatisfy(
-                        event ->
-                                assertThat(
-                                                ((Number)
-                                                                event.payload()
-                                                                        .get("playbackDelayMillis"))
-                                                        .longValue())
-                                        .isBetween(
-                                                QaBotThinkingRhythm.MIN_MILLIS,
-                                                QaBotThinkingRhythm.MAX_MILLIS));
+                        event -> {
+                            assertThat(event.payload()).doesNotContainKey("playbackDelayMillis");
+                            assertThat(event.payload())
+                                    .containsEntry("clockRemainingSeconds", QaRoundClock.TURN_SECONDS);
+                        });
     }
 
     @Test
-    void botDealerOpeningDiscardWaitsBehindTurnAdvancedPlaybackBoundary() {
+    void botDealerOpeningDiscardFollowsTurnAdvancedWithoutPlaybackBoundary() {
         QaTaizhouRoundEngine engine = new QaTaizhouRoundEngine(OBJECT_MAPPER);
 
         QaTaizhouRoundResult result =
@@ -303,8 +298,8 @@ class QaTaizhouRoundEngineTest {
         GameEvent turn = events.get(turnIndex);
         assertThat(turn.audience()).isEqualTo(GameEvent.Audience.PUBLIC);
         assertThat(turn.payload()).containsEntry("activeSeat", 1);
-        assertThat(((Number) turn.payload().get("playbackDelayMillis")).longValue())
-                .isBetween(QaBotThinkingRhythm.MIN_MILLIS, QaBotThinkingRhythm.MAX_MILLIS);
+        assertThat(turn.payload()).doesNotContainKey("playbackDelayMillis");
+        assertThat(turn.payload()).containsEntry("clockRemainingSeconds", QaRoundClock.TURN_SECONDS);
     }
 
     @Test

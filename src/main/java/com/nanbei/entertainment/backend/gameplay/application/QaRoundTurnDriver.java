@@ -1,8 +1,7 @@
 package com.nanbei.entertainment.backend.gameplay.application;
 
 import com.nanbei.entertainment.backend.gameplay.domain.GameEvent;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.ArrayList;import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -190,8 +189,7 @@ final class QaRoundTurnDriver {
     private void appendTingInfo(
             QaRoundTable table, long revision, List<GameEvent> events, int seat) {
         List<QaRoundTable.TingEntry> entries =
-                tingInfoCalculator.compute(
-                        table.hands().get(seat), table.jokerRule, QaTingInfoCalculator.BUDGET_NANOS);
+                tingInfoCalculator.compute(table, seat, QaTingInfoCalculator.BUDGET_NANOS);
         table.tingInfos().put(seat, entries);
         events.add(eventFactory.tingInfo(revision, seat, entries));
     }

@@ -116,9 +116,8 @@ class QaTaizhouAiBotDecisionTest {
                         .filter(event -> event.type().equals("TURN_ADVANCED"))
                         .findFirst()
                         .orElseThrow();
-        long delay = ((Number) turn.payload().get("playbackDelayMillis")).longValue();
-        assertThat(turn.payload().get("clockRemainingSeconds"))
-                .isEqualTo((int) ((delay + 999L) / 1_000L));
+        assertThat(turn.payload()).doesNotContainKey("playbackDelayMillis");
+        assertThat(turn.payload().get("clockRemainingSeconds")).isEqualTo(QaRoundClock.TURN_SECONDS);
     }
 
     @Test

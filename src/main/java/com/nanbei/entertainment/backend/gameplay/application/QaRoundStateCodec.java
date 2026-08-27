@@ -37,7 +37,9 @@ final class QaRoundStateCodec {
         mode.putMarkers(state);
         state.put("roundNumber", table.roundNumber);
         state.put("activeSeat", table.stage == QaRoundTable.Stage.ROUND_OVER ? null : table.activeSeat);
-        state.put("clockRemainingSeconds", QaRoundClock.remainingSeconds(table));
+        state.put(
+                "clockRemainingSeconds",
+                QaRoundClock.remainingSeconds(table, context.occurredAt()));
         state.put("remainingWallCount", table.wall.size());
         state.put("shuffleAlgorithm", table.shuffleAlgorithm);
         state.put("shuffleSeedSource", table.shuffleSeedSource);

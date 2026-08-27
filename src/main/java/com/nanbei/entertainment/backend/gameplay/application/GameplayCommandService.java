@@ -61,6 +61,7 @@ public class GameplayCommandService {
     private final QaRoundCoordinator qaRoundCoordinator;
     private final WaitingRoomEngine waitingRoomEngine = new WaitingRoomEngine();
     private final GameplayClientForwardHandler clientForwardHandler;
+    private final GameplayRoundOutcomePersister roundOutcomePersister;
     private GoldRoomWalletSettlementService goldWalletSettlementService;
     @Autowired
     void setGoldWalletSettlementService(GoldRoomWalletSettlementService service) {
@@ -88,6 +89,7 @@ public class GameplayCommandService {
                 Clock.systemUTC(),
                 qaBotService);
     }
+
     GameplayCommandService(
             GameRoomRepository roomRepository,
             GameSessionRepository sessionRepository,
@@ -108,6 +110,7 @@ public class GameplayCommandService {
                 clock,
                 null);
     }
+
     GameplayCommandService(
             GameRoomRepository roomRepository,
             GameSessionRepository sessionRepository,
@@ -131,6 +134,8 @@ public class GameplayCommandService {
         this.clientForwardHandler =
                 new GameplayClientForwardHandler(
                         commandRepository, eventRepository, objectMapper);
+        this.roundOutcomePersister =
+                new GameplayRoundOutcomePersister(eventRepository, commandRepository, objectMapper);
     }
     @Transactional(noRollbackFor = GameplaySessionCompletedException.class)
     public GameplayCommandResponse submit(
@@ -188,6 +193,10 @@ public class GameplayCommandService {
         if (request.type() == GameplayCommandType.CLIENT_FORWARD) {
             return clientForwardHandler.submit(
                     userId, safeKey, requestHash, request, session, actorSeat, now);
+        }
+        if (request.type() == GameplayCommandType.TRUST) {
+            return new GameplayTrustHandler(commandRepository, eventRepository, objectMapper)
+                    .submit(userId, safeKey, requestHash, request, room, session, actorSeat, now);
         }
         if (ROUND_COMMANDS.contains(request.type())) {
             return submitRoundCommand(
@@ -319,11 +328,9 @@ public class GameplayCommandService {
             GameSessionSeatEntity actorSeat,
             List<GameSessionSeatEntity> seats,
             Instant now) {
-        if (request.expectedRevision() != session.getRevision()) {
-            throw new ApiException(
-                    ErrorCode.GAME_COMMAND_STALE,
-                    "牌局状态已更新，当前修订号为 " + session.getRevision());
-        }
+        // 原版 msgPlayMah 等轮内命令没有客户端乐观版本号门禁：受理与否由服务端
+        // 轮转状态与一次性 actionToken 决定。真人出牌前机器人不断推高 revision，
+        // 在这里做严格相等校验会把玩家正常点击误判成过期。
         QaRoundCoordinator.QaRoundCommandOutcome outcome =
                 qaRoundCoordinator.applyCommand(
                         room, session, actorSeat, seats, request.type(), request.payload(), now);
@@ -343,50 +350,14 @@ public class GameplayCommandService {
         if (goldWalletSettlementService != null) {
             goldWalletSettlementService.settle(room, outcome.seats(), outcome.scoreDeltasBySeat());
         }
-        for (GameSessionSeatEntity seat : outcome.seats()) {
-            Long delta = outcome.scoreDeltasBySeat().get(seat.getId().getSeatNumber());
-            if (delta != null && delta != 0L) {
-                seat.applyScoreDelta(delta, now);
-            }
-        }
-        session.advance(
-                persistedPhase(outcome.phase(), outcome.state()),
-                outcome.roundNumber(),
-                outcome.revision(),
-                json(outcome.state()),
-                now);
-        for (int index = 0; index < outcome.events().size(); index++) {
-            GameEvent orderedEvent = outcome.events().get(index);
-            eventRepository.save(
-                    eventEntity(session.getId(), orderedEvent, index + 1, now));
-        }
-        GameplayCommandResponse response =
-                new GameplayCommandResponse(
-                        outcome.revision(),
-                        outcome.events().getFirst().type(),
-                        actorSeat.getId().getSeatNumber(),
-                        actorSeat.isReady(),
-                        false, GameplayEventView.visibleTo(
-                                objectMapper, session.getId(), actorSeat.getId().getSeatNumber(), outcome.events()));
-        GameCommandEntity command =
-                new GameCommandEntity(
-                        session.getId(),
-                        userId,
-                        safeKey,
-                        requestHash,
-                        request.type().name(),
-                        request.expectedRevision(),
-                        now);
-        command.accept(outcome.revision(), json(response));
-        commandRepository.save(command);
-        return response;
+        return roundOutcomePersister.persist(
+                userId, safeKey, requestHash, request, session, actorSeat, outcome, now);
     }
 
     static GamePhase persistedPhase(GamePhase phase, JsonNode state) {
-        return phase == GamePhase.ROUND_RESULT
-                        && state != null && state.hasNonNull("totalResult")
-                ? GamePhase.COMPLETED : phase;
+        return GameplayRoundOutcomePersister.persistedPhase(phase, state);
     }
+
     private CommandResult<WaitingRoomState> handle(
             WaitingRoomState state,
             GameRoomEntity room,

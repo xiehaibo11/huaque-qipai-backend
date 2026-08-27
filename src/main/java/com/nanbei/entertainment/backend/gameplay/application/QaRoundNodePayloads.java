@@ -83,7 +83,9 @@ final class QaRoundNodePayloads {
                         payload.add(
                                 Map.of(
                                         "discard", entry.discard(),
-                                        "huTargets", entry.huTargets()));
+                                        "huTargets", entry.huTargets(),
+                                        "fanPoints", entry.fanPoints(),
+                                        "huPoints", entry.huPoints()));
                     }
                     node.put(Integer.toString(seat), payload);
                 });
@@ -101,9 +103,22 @@ final class QaRoundNodePayloads {
                                         .forEach(tingTarget -> huTargets.add(tingTarget.asInt()));
                                 entries.add(
                                         new QaRoundTable.TingEntry(
-                                                tingNode.path("discard").asInt(), huTargets));
+                                                tingNode.path("discard").asInt(),
+                                                huTargets,
+                                                points(tingNode, "fanPoints", huTargets.size()),
+                                                points(tingNode, "huPoints", huTargets.size())));
                             }
                             target.put(Integer.parseInt(entry.getKey()), entries);
                         });
+    }
+
+    /** 旧状态没有台/胡两列，按目标数补零读回，避免续推老 session 时炸构造。 */
+    private static List<Integer> points(JsonNode tingNode, String field, int size) {
+        List<Integer> values = new ArrayList<>(size);
+        tingNode.path(field).forEach(point -> values.add(point.asInt()));
+        while (values.size() < size) {
+            values.add(0);
+        }
+        return values.size() == size ? values : values.subList(0, size);
     }
 }

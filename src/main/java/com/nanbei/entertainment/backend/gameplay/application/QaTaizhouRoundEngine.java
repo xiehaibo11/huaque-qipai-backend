@@ -33,6 +33,7 @@ final class QaTaizhouRoundEngine {
     private final QaRoundTurnDriver turnDriver;
     private final QaRoundCommandApplier commandApplier;
     private final QaRoundFlowAdvance flowAdvance;
+    private final QaRoundTimeoutFlow timeoutFlow;
     private final TaizhouRoundMode mode;
 
     QaTaizhouRoundEngine(ObjectMapper objectMapper) {
@@ -59,6 +60,7 @@ final class QaTaizhouRoundEngine {
                         new QaTingInfoCalculator());
         this.commandApplier = new QaRoundCommandApplier();
         this.flowAdvance = new QaRoundFlowAdvance(eventFactory, turnDriver);
+        this.timeoutFlow = new QaRoundTimeoutFlow(eventFactory);
     }
 
     private static QaTaizhouBotPolicy botPolicy(TaizhouRoundMode mode) {
@@ -161,10 +163,27 @@ final class QaTaizhouRoundEngine {
         return new QaRoundStep(events, deltas(table), table.outcome != null, table);
     }
 
+    /** 只读判定：是否存在已过宽限期的真人 offer（调度器的廉价预筛）。 */
+    boolean hasTimedOutOffers(QaRoundTable table, Instant now) {
+        return timeoutFlow.hasTimedOutOffers(table, now);
+    }
+
+    /**
+     * 超时托管推进（自建）：到期 offer 代打/代过，再继续事件循环直到下一个
+     * 真人动作点或局终。返回是否真的发生了推进。
+     */
+    boolean expireTimedOutOffers(
+            QaRoundTable table, QaRoundContext context, long nextRevision, List<GameEvent> events) {
+        if (!timeoutFlow.expireTimedOutOffers(turnDriver, table, context, nextRevision, events)) {
+            return false;
+        }
+        advance(table, context, nextRevision, events);
+        return true;
+    }
+
     /** 假人驱动事件循环：同步推进到下一个真人动作点或局终（在命令事务内完成）。 */
     void advance(
-            QaRoundTable table, QaRoundContext context, long revision, List<GameEvent> events) {
-        int guard = 0;
+            QaRoundTable table, QaRoundContext context, long revision, List<GameEvent> events) {        int guard = 0;
         while (table.outcome == null && !table.hasUnansweredHumanOffer()) {
             if (++guard > MAX_LOOP_STEPS) {
                 throw new IllegalStateException("QA round loop did not converge");

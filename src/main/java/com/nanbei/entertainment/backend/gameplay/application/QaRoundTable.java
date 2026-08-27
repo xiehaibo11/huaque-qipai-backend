@@ -2,6 +2,7 @@ package com.nanbei.entertainment.backend.gameplay.application;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -111,10 +112,30 @@ final class QaRoundTable {
         }
     }
 
-    /** TING_INFO 单条映射（自建）：打出 discard 后可听 huTargets（对齐 msgTingMahInfo 语义）。 */
-    record TingEntry(int discard, List<Integer> huTargets) {
+    /**
+     * TING_INFO 单条映射（自建）：打出 discard 后可听 huTargets，每个目标各带一份台与胡，
+     * 对齐原版 {@code msgAllWaitInfo} 的 {@code nWaitMahs/nFanPoint/nHuPoint} 三条平行数组。
+     */
+    record TingEntry(
+            int discard,
+            List<Integer> huTargets,
+            List<Integer> fanPoints,
+            List<Integer> huPoints) {
         TingEntry {
             huTargets = List.copyOf(huTargets);
+            fanPoints = List.copyOf(fanPoints);
+            huPoints = List.copyOf(huPoints);
+            if (fanPoints.size() != huTargets.size() || huPoints.size() != huTargets.size()) {
+                throw new IllegalArgumentException("ting points must be one per hu target");
+            }
+        }
+
+        TingEntry(int discard, List<Integer> huTargets) {
+            this(
+                    discard,
+                    huTargets,
+                    Collections.nCopies(huTargets.size(), 0),
+                    Collections.nCopies(huTargets.size(), 0));
         }
     }
 

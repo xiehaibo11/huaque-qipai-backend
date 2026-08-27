@@ -143,16 +143,7 @@ class GameplayCommandServiceQaRoundTest {
                 .hasSize(4);
         assertThat(response.events())
                 .filteredOn(event -> event.payload().has("playbackDelayMillis"))
-                .hasSize(3)
-                .allSatisfy(
-                        event ->
-                                assertThat(
-                                                event.payload()
-                                                        .path("playbackDelayMillis")
-                                                        .asLong())
-                                        .isBetween(
-                                                QaBotThinkingRhythm.MIN_MILLIS,
-                                                QaBotThinkingRhythm.MAX_MILLIS));
+                .isEmpty();
         assertThat(response.events())
                 .extracting(GameplayEventView::eventOrder)
                 .containsExactlyElementsOf(
@@ -206,8 +197,12 @@ class GameplayCommandServiceQaRoundTest {
     }
 
     @Test
-    void aStaleRevisionIsRejectedBeforeTheEngineRuns() {
+    void aStaleRevisionDefersToEngineAuthorityInsteadOfARevisionCas() throws Exception {
+        // 原版轮内命令没有客户端版本号门禁：expectedRevision 过期时受理与否仍由
+        // 服务端轮转状态与一次性 actionToken 决定。
+        advanceSessionPastMultipleChoice();
         arrangeCommand(OWNER_ID, "discard-stale");
+        arrangeQaEngine();
 
         assertThatThrownBy(
                         () ->
@@ -219,11 +214,11 @@ class GameplayCommandServiceQaRoundTest {
                                                 GameplayCommandType.DISCARD,
                                                 0L,
                                                 objectMapper.readTree(
-                                                        "{\"tileValue\":17,\"actionToken\":\"t\"}"))))
+                                                        "{\"tileValue\":17,\"actionToken\":\"wrong\"}"))))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
-                .isEqualTo(ErrorCode.GAME_COMMAND_STALE);
-        assertThat(session.getRevision()).isEqualTo(1L);
+                .isEqualTo(ErrorCode.GAME_ACTION_NOT_ALLOWED);
+        assertThat(session.getRevision()).isEqualTo(2L);
         verify(eventRepository, never()).save(org.mockito.ArgumentMatchers.any());
     }
 

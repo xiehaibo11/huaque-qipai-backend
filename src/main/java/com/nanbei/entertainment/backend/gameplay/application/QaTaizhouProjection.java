@@ -20,6 +20,15 @@ final class QaTaizhouProjection {
     private static final DateTimeFormatter SETTLE_TIME =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
 
+    /**
+     * 原版 {@code msgAllWaitInfo} 的 {@code bShowFanNum}/{@code bShowHuNum}：客户端
+     * {@code GameLayer/Module.lua:canHuInfoNum} 据此拼「N台」「N胡」。台州 30109 的番已被
+     * {@link QaTaizhouScorer} 折进胡数，听牌面板只报胡，与原版一致。
+     */
+    private static final boolean SHOW_FAN_NUM = false;
+
+    private static final boolean SHOW_HU_NUM = true;
+
     private final ObjectMapper objectMapper;
 
     QaTaizhouProjection(ObjectMapper objectMapper) {
@@ -203,10 +212,14 @@ final class QaTaizhouProjection {
             Map<String, Object> ting = new LinkedHashMap<>();
             ting.put("discard", entry.discard());
             ting.put("huTargets", entry.huTargets());
+            ting.put("fanPoints", entry.fanPoints());
+            ting.put("huPoints", entry.huPoints());
             tingMahs.add(ting);
         }
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("seat", seat);
+        payload.put("showFanNum", SHOW_FAN_NUM);
+        payload.put("showHuNum", SHOW_HU_NUM);
         payload.put("tingMahs", tingMahs);
         return payload;
     }
@@ -216,7 +229,9 @@ final class QaTaizhouProjection {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("seat", seat);
         payload.put("activeSeat", seat);
-        payload.put("clockRemainingSeconds", QaRoundClock.TURN_SECONDS);
+        payload.put(
+                "clockRemainingSeconds",
+                offer.playOffer ? QaRoundClock.TURN_SECONDS : QaRoundClock.CLAIM_SECONDS);
         payload.put("powerMask", offer.powerMask);
         payload.put("actionToken", offer.actionToken);
         payload.put("contextTile", offer.contextTile);

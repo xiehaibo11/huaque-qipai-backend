@@ -152,13 +152,7 @@ final class QaRoundEventFactory {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("activeSeat", table.activeSeat);
         payload.put("remainingWallCount", table.wall.size());
-        if (table.isBot(table.activeSeat)) {
-            long delay = QaTaizhouBotPolicy.thinkingDelayMillis(table);
-            payload.put("clockRemainingSeconds", (int) ((delay + 999L) / 1_000L));
-            payload.put("playbackDelayMillis", delay);
-        } else {
-            payload.put("clockRemainingSeconds", QaRoundClock.TURN_SECONDS);
-        }
+        payload.put("clockRemainingSeconds", QaRoundClock.TURN_SECONDS);
         return GameEvent.publicEvent(
                 revision,
                 "TURN_ADVANCED",

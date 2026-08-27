@@ -279,6 +279,37 @@ class GameplayCommandServiceTest {
     }
 
     @Test
+    void trustPublishesOriginalTrustEventWithoutChangingTableState() {
+        room = trustRoom();
+        session.advance(GamePhase.PLAYING, 1, 1L, "{\"round\":1}", NOW);
+        arrangeCommand(OWNER_ID, "trust-1");
+
+        GameplayCommandResponse response =
+                service.submit(
+                        OWNER_ID,
+                        "123456",
+                        "trust-1",
+                        new GameplayCommandRequest(
+                                GameplayCommandType.TRUST,
+                                1L,
+                                objectMapper.createObjectNode().put("trusted", true)));
+
+        assertThat(response)
+                .isEqualTo(new GameplayCommandResponse(2L, "TRUST", 1, false, false));
+        assertThat(session.getRevision()).isEqualTo(2L);
+        assertThat(session.getPhase()).isEqualTo(GamePhase.PLAYING);
+        assertThat(session.getState()).isEqualTo("{\"round\":1}");
+
+        ArgumentCaptor<GameEventEntity> event = ArgumentCaptor.forClass(GameEventEntity.class);
+        verify(eventRepository).save(event.capture());
+        assertThat(event.getValue().getRevision()).isEqualTo(2L);
+        assertThat(event.getValue().getEventType()).isEqualTo("TRUST");
+        assertThat(event.getValue().getVisibility().name()).isEqualTo("PUBLIC");
+        assertThat(event.getValue().getPayload())
+                .isEqualTo("{\"seat\":1,\"trusted\":true,\"punishSeconds\":15}");
+    }
+
+    @Test
     void startRoundStartsAServerAuthoritativeRoundForAFullReadyRoom() {
         ownerSeat.setReady(true, NOW);
         guestSeat.setReady(true, NOW);
@@ -367,6 +398,24 @@ class GameplayCommandServiceTest {
                 30109L,
                 "autoReady='1';",
                 "不平搓/自动准备/不封顶",
+                "{}",
+                0,
+                2,
+                8,
+                RoomPayType.ALL,
+                100,
+                "room-key",
+                "room-hash");
+    }
+
+    private static GameRoomEntity trustRoom() {
+        return new GameRoomEntity(
+                "123456",
+                OWNER_ID,
+                900023L,
+                30109L,
+                "IsSysTrust='15';",
+                "超时15秒托管",
                 "{}",
                 0,
                 2,

@@ -16,6 +16,8 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # 生产按文件同步部署，低版本迁移可能晚于高版本落库，允许乱序补齐。
+    out-of-order: true
   jackson:
     default-property-inclusion: non_null
 

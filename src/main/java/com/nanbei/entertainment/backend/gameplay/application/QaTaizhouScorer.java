@@ -10,6 +10,8 @@ import java.util.Set;
 final class QaTaizhouScorer {
     private static final int MAX_HU = 100;
     private static final Set<Integer> FAN_DRAGONS = Set.of(0x51, 0x52);
+    /** 听牌预览的和牌方式：既不是自摸也不是点炮，只取牌型本身的台与胡。 */
+    private static final String TING_PREVIEW = "TING_PREVIEW";
 
     private QaTaizhouScorer() {}
 
@@ -83,6 +85,15 @@ final class QaTaizhouScorer {
         return new SeatScore(0, 0, 0, 0, 0, false, false, List.of());
     }
 
+    /**
+     * 听牌提示用：按一手假想的和牌牌（已含所胡的那张）给出台与胡，供
+     * {@code msgAllWaitInfo} 的 {@code nFanPoint/nHuPoint} 下发。不带自摸加分，
+     * 因为摸牌还是点炮此刻未知。
+     */
+    static SeatScore tingPreview(QaRoundTable table, int seat, List<Integer> winningHand) {
+        return scoreConcealed(table, seat, winningHand, true, TING_PREVIEW);
+    }
+
     private static SeatScore scoreSeat(
             QaRoundTable table,
             int seat,
@@ -95,7 +106,15 @@ final class QaTaizhouScorer {
         } else if (winner && "QIANGGANG".equals(winType)) {
             concealed.add(winningTile);
         }
+        return scoreConcealed(table, seat, concealed, winner, winType);
+    }
 
+    private static SeatScore scoreConcealed(
+            QaRoundTable table,
+            int seat,
+            List<Integer> concealed,
+            boolean winner,
+            String winType) {
         ScoreParts parts = new ScoreParts();
         int seatWind = seatWind(seat, table.dealerSeat);
         boolean exposedAllTripletLike = true;

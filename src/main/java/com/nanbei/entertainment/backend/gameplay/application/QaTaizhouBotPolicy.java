@@ -91,11 +91,6 @@ final class QaTaizhouBotPolicy {
         return parse(choose(table, tableState(table, seat, tile), legal, "HU"));
     }
 
-    /** 客户端播放用思考时长；不阻塞后端事务。 */
-    static long thinkingDelayMillis(QaRoundTable table) {
-        return QaBotThinkingRhythm.thinkingDelayMillis(table);
-    }
-
     private String choose(
             QaRoundTable table, String state, List<String> legal, String fallback) {
         if (!table.goldMode) {
