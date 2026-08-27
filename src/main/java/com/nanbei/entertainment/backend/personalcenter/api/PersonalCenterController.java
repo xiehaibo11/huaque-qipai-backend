@@ -114,7 +114,7 @@ public class PersonalCenterController {
 
     public record PhoneBindingRequest(
             @NotBlank @Size(max = 32) String phoneNumber,
-            @NotBlank @Size(min = 4, max = 8) String code) {}
+            @NotBlank @Pattern(regexp = "\\d{6}") String code) {}
 
     public record AccountDeletionRequest(
             @NotBlank @Pattern(regexp = "注销账号") String confirmation) {}

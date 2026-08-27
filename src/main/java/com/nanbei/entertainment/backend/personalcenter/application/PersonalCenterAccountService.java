@@ -148,7 +148,7 @@ public class PersonalCenterAccountService {
 
     private String normalizeCode(String code) {
         String normalized = code == null ? "" : code.trim();
-        if (!normalized.matches("\\d{4,8}")) {
+        if (!normalized.matches("\\d{6}")) {
             throw invalidCode();
         }
         return normalized;

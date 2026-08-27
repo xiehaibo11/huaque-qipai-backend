@@ -185,6 +185,35 @@ class PersonalCenterAccountServiceTest {
     }
 
     @Test
+    void refusesNonOriginalSixDigitBindingCodesBeforeHashVerification() {
+        UserEntity currentUser = UserEntity.create("微信用户");
+        OtpChallengeEntity challenge =
+                new OtpChallengeEntity(
+                        "13800138000",
+                        "PHONE_BIND",
+                        "hash",
+                        java.time.Instant.now().plusSeconds(300),
+                        5);
+        when(userRepository.findById(currentUser.getId()))
+                .thenReturn(Optional.of(currentUser));
+        when(otpRepository.findFirstByPhoneNumberAndPurposeAndConsumedAtIsNullOrderByCreatedAtDesc(
+                        "13800138000", "PHONE_BIND"))
+                .thenReturn(Optional.of(challenge));
+
+        assertThatThrownBy(
+                        () ->
+                                service.bindPhone(
+                                        currentUser.getId(),
+                                        "13800138000",
+                                        "12345"))
+                .isInstanceOf(ApiException.class);
+
+        verify(cryptoService, never()).sha256("13800138000:12345");
+        verify(identityRepository, never())
+                .findByProviderAndProviderSubject(any(), any());
+    }
+
+    @Test
     void deactivatesTheAccountAndRevokesEveryRefreshToken() {
         UUID userId = UUID.randomUUID();
         UserEntity user = UserEntity.create("测试用户");

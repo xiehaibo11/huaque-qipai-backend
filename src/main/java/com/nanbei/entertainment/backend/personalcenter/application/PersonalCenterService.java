@@ -36,7 +36,7 @@ public class PersonalCenterService {
         this.membershipStatusService = membershipStatusService;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public PersonalCenterSnapshot load(UUID userId) {
         GameHomeSnapshot home = gameHomeService.load(userId);
         List<UserIdentityEntity> identities =
